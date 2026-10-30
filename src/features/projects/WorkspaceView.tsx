@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Sidebar } from '@/shared/components/Sidebar';
 import { TopBar } from '@/shared/components/TopBar';
 import { useProjectStore } from './projectStore';
-import { MindTreeCanvasPlaceholder } from '@/features/mindtree/MindTreeCanvasPlaceholder';
+import { MindTreeCanvas } from '@/features/mindtree/MindTreeCanvas';
 import { DBSchemaCanvasPlaceholder } from '@/features/dbdesigner/DBSchemaCanvasPlaceholder';
 
 export function WorkspaceView() {
@@ -33,11 +33,9 @@ export function WorkspaceView() {
       <TopBar
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
         onOpenCommandPalette={() => {
-          // Placeholder for Phase 6 command palette trigger
           alert('Command Palette (Ctrl/Cmd+K) ready — full command list in Phase 6');
         }}
         onOpenExportDialog={() => {
-          // Placeholder for Phase 6 export dialog
           alert('Export dialog (PNG/SVG/PDF/SQL) ready — full export engine in Phase 6');
         }}
       />
@@ -47,7 +45,7 @@ export function WorkspaceView() {
 
         <main className="flex-1 h-full flex flex-col relative overflow-hidden bg-background">
           {activeDocument.type === 'mindtree' ? (
-            <MindTreeCanvasPlaceholder document={activeDocument} />
+            <MindTreeCanvas key={activeDocument.id} document={activeDocument} />
           ) : (
             <DBSchemaCanvasPlaceholder document={activeDocument} />
           )}
