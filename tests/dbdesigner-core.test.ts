@@ -4,6 +4,7 @@ import {
   getDefaultPrimaryKeyType,
 } from '../src/features/dbdesigner/dialects';
 import { calculateERLayout } from '../src/features/dbdesigner/layout';
+import { useDBDesignerStore } from '../src/features/dbdesigner/dbDesignerStore';
 import type { DBTable, DBRelationship } from '../src/features/projects/types';
 
 describe('DB Designer Core & Dialects Tests', () => {
@@ -98,5 +99,50 @@ describe('DB Designer Core & Dialects Tests', () => {
     expect(arranged).toHaveLength(2);
     expect(typeof arranged[0].position.x).toBe('number');
     expect(typeof arranged[1].position.y).toBe('number');
+  });
+
+  it('manages foreign key flags cleanly when deleting relationships, columns, and tables', () => {
+    // Reset store state
+    useDBDesignerStore.setState({
+      tables: [
+        {
+          id: 'tbl-users',
+          name: 'users',
+          position: { x: 0, y: 0 },
+          columns: [{ id: 'u_id', name: 'id', type: 'bigint', isPrimaryKey: true }],
+        },
+        {
+          id: 'tbl-posts',
+          name: 'posts',
+          position: { x: 300, y: 0 },
+          columns: [
+            { id: 'p_id', name: 'id', type: 'bigint', isPrimaryKey: true },
+            { id: 'p_uid', name: 'user_id', type: 'bigint', isForeignKey: false },
+          ],
+        },
+      ],
+      relationships: [],
+    });
+
+    // 1. Add relationship
+    const rel = useDBDesignerStore.getState().addRelationship('tbl-posts', 'p_uid', 'tbl-users', 'u_id');
+    expect(rel).toBeDefined();
+
+    // Verify posts.user_id is marked as FK
+    let postsTable = useDBDesignerStore.getState().tables.find((t: DBTable) => t.id === 'tbl-posts')!;
+    expect(postsTable.columns.find((c) => c.id === 'p_uid')?.isForeignKey).toBe(true);
+
+    // 2. Delete relationship -> verify isForeignKey is reset to false
+    useDBDesignerStore.getState().deleteRelationship(rel.id);
+    postsTable = useDBDesignerStore.getState().tables.find((t: DBTable) => t.id === 'tbl-posts')!;
+    expect(postsTable.columns.find((c) => c.id === 'p_uid')?.isForeignKey).toBe(false);
+
+    // 3. Add relationship again, then delete target table -> verify FK is cleaned up
+    useDBDesignerStore.getState().addRelationship('tbl-posts', 'p_uid', 'tbl-users', 'u_id');
+    useDBDesignerStore.getState().deleteTable('tbl-users');
+
+    postsTable = useDBDesignerStore.getState().tables.find((t: DBTable) => t.id === 'tbl-posts')!;
+    expect(postsTable.columns.find((c) => c.id === 'p_uid')?.isForeignKey).toBe(false);
+    expect(useDBDesignerStore.getState().relationships).toHaveLength(0);
   });
 });

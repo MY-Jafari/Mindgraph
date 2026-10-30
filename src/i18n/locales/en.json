@@ -107,6 +107,11 @@
   },
   "export": {
     "title": "Export & Backup",
+    "scope": "Export Range",
+    "scopeAll": "Entire Canvas (All Nodes)",
+    "scopeAllDesc": "Full graph without clipping, regardless of zoom or scroll",
+    "scopeViewport": "Current Screen (Visible Area)",
+    "scopeViewportDesc": "Exports only what is currently visible in your window",
     "format": "Format",
     "scale": "Resolution / Scale",
     "background": "Canvas Background",

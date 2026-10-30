@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { exportToMarkdownOutline } from '../src/features/export/services/markdownOutline';
 import { exportToOPML } from '../src/features/export/services/opmlExport';
 import { exportToSelfContainedHTML } from '../src/features/export/services/htmlViewerExport';
+import { calculateCanvasBounds } from '../src/features/export/services/visualExport';
 import type { MindTreeNode, Document } from '../src/features/projects/types';
 import JSZip from 'jszip';
 
@@ -156,5 +157,20 @@ describe('Phase 6: Unified Export Services', () => {
 
     expect(md.length).toBeGreaterThan(10000);
     expect(elapsed).toBeLessThan(150); // Fast pure memory hierarchy construction
+  });
+
+  it('calculates full project bounding box accurately across all nodes without viewport clipping', () => {
+    const nodes = [
+      { id: 'n1', position: { x: -200, y: -100 }, width: 200, height: 100 },
+      { id: 'n2', position: { x: 1200, y: 800 }, width: 300, height: 150 },
+    ];
+
+    const bounds = calculateCanvasBounds(nodes);
+    expect(bounds.x).toBe(-200);
+    expect(bounds.y).toBe(-100);
+    // Max X is 1200 + 300 = 1500 -> total width = 1500 - (-200) = 1700
+    expect(bounds.width).toBe(1700);
+    // Max Y is 800 + 150 = 950 -> total height = 950 - (-100) = 1050
+    expect(bounds.height).toBe(1050);
   });
 });

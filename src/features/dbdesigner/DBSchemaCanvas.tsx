@@ -130,8 +130,8 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
       const isTargetToTheRight =
         targetTable && sourceTable ? targetTable.position.x > sourceTable.position.x : true;
 
-      const sourceHandle = `col-${rel.sourceColumnId}-${isTargetToTheRight ? 'right' : 'left'}`;
-      const targetHandle = `col-${rel.targetColumnId}-${isTargetToTheRight ? 'left' : 'right'}`;
+      const sourceHandle = `col-${rel.sourceColumnId}-${isTargetToTheRight ? 'right' : 'left'}-source`;
+      const targetHandle = `col-${rel.targetColumnId}-${isTargetToTheRight ? 'left' : 'right'}-target`;
 
       return {
         id: rel.id,
@@ -154,19 +154,23 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
       applyNodeChanges(changes, flowNodes as unknown as Parameters<typeof applyNodeChanges>[1]);
+      const tableIds = new Set(tables.map((t) => t.id));
+      const areaIds = new Set(areas.map((a) => a.id));
+      const noteIds = new Set(notes.map((n) => n.id));
+
       for (const change of changes) {
         if (change.type === 'position' && change.position && change.id) {
-          if (change.id.startsWith('tbl-')) {
+          if (tableIds.has(change.id)) {
             updateTablePosition(change.id, change.position);
-          } else if (change.id.startsWith('area-')) {
+          } else if (areaIds.has(change.id)) {
             updateArea(change.id, { position: change.position });
-          } else if (change.id.startsWith('note-')) {
+          } else if (noteIds.has(change.id)) {
             updateNote(change.id, { position: change.position });
           }
         }
       }
     },
-    [flowNodes, updateTablePosition, updateArea, updateNote]
+    [flowNodes, tables, areas, notes, updateTablePosition, updateArea, updateNote]
   );
 
   // Handle column handle drag-to-connect to create FK relationship
@@ -179,18 +183,52 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
         connection.sourceHandle &&
         connection.targetHandle
       ) {
-        const sourceColMatch = connection.sourceHandle.match(/^col-(.+)-(left|right)$/);
-        const targetColMatch = connection.targetHandle.match(/^col-(.+)-(left|right)$/);
+        // Matches col-{id}-(left|right)-(source|target)
+        const sourceColMatch = connection.sourceHandle.match(/^col-(.+)-(left|right)-(source|target)$/);
+        const targetColMatch = connection.targetHandle.match(/^col-(.+)-(left|right)-(source|target)$/);
 
-        const sourceColId = sourceColMatch ? sourceColMatch[1] : '';
-        const targetColId = targetColMatch ? targetColMatch[1] : '';
+        const rawSourceColId = sourceColMatch ? sourceColMatch[1] : '';
+        const rawTargetColId = targetColMatch ? targetColMatch[1] : '';
 
-        if (sourceColId && targetColId) {
-          addRelationship(connection.source, sourceColId, connection.target, targetColId);
+        if (!rawSourceColId || !rawTargetColId) return;
+
+        // Prevent duplicate relationship
+        const isDuplicate = relationships.some(
+          (r) =>
+            (r.sourceTableId === connection.source &&
+              r.sourceColumnId === rawSourceColId &&
+              r.targetTableId === connection.target &&
+              r.targetColumnId === rawTargetColId) ||
+            (r.sourceTableId === connection.target &&
+              r.sourceColumnId === rawTargetColId &&
+              r.targetTableId === connection.source &&
+              r.targetColumnId === rawSourceColId)
+        );
+        if (isDuplicate) return;
+
+        const srcTable = tables.find((t) => t.id === connection.source);
+        const tgtTable = tables.find((t) => t.id === connection.target);
+        const srcCol = srcTable?.columns.find((c) => c.id === rawSourceColId);
+        const tgtCol = tgtTable?.columns.find((c) => c.id === rawTargetColId);
+
+        // Smart auto-detection of FK direction:
+        // If dragged from a Primary Key to a non-PK column, the non-PK column is the Foreign Key referencing the PK!
+        let referencingTableId = connection.source;
+        let referencingColId = rawSourceColId;
+        let referencedTableId = connection.target;
+        let referencedColId = rawTargetColId;
+
+        if (srcCol?.isPrimaryKey && !tgtCol?.isPrimaryKey) {
+          referencingTableId = connection.target;
+          referencingColId = rawTargetColId;
+          referencedTableId = connection.source;
+          referencedColId = rawSourceColId;
         }
+
+        addRelationship(referencingTableId, referencingColId, referencedTableId, referencedColId);
       }
     },
-    [addRelationship]
+    [tables, relationships, addRelationship]
   );
 
   // Global Keyboard shortcuts

@@ -173,14 +173,26 @@ export const TableNode = React.memo(({ id, data, selected }: NodeProps) => {
               <Handle
                 type="target"
                 position={Position.Left}
-                id={`col-${col.id}-left`}
+                id={`col-${col.id}-left-target`}
                 className="!w-2.5 !h-2.5 !bg-primary/90 !border-background hover:!scale-150 transition-transform"
               />
               <Handle
                 type="source"
+                position={Position.Left}
+                id={`col-${col.id}-left-source`}
+                className="!w-2.5 !h-2.5 !bg-transparent !border-transparent pointer-events-auto"
+              />
+              <Handle
+                type="source"
                 position={Position.Right}
-                id={`col-${col.id}-right`}
+                id={`col-${col.id}-right-source`}
                 className="!w-2.5 !h-2.5 !bg-primary/90 !border-background hover:!scale-150 transition-transform"
+              />
+              <Handle
+                type="target"
+                position={Position.Right}
+                id={`col-${col.id}-right-target`}
+                className="!w-2.5 !h-2.5 !bg-transparent !border-transparent pointer-events-auto"
               />
 
               {/* Start: Column Badges & Name */}

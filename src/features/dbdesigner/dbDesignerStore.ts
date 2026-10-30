@@ -250,13 +250,30 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
 
   deleteTable: (tableId) => {
     get().recordHistory();
-    set((state) => ({
-      tables: state.tables.filter((t) => t.id !== tableId),
-      relationships: state.relationships.filter(
+    set((state) => {
+      const remainingTables = state.tables.filter((t) => t.id !== tableId);
+      const remainingRelationships = state.relationships.filter(
         (r) => r.sourceTableId !== tableId && r.targetTableId !== tableId
-      ),
-      selectedTableId: null,
-    }));
+      );
+
+      // Clean up orphaned FK flags on remaining tables
+      const sanitizedTables = remainingTables.map((t) => ({
+        ...t,
+        columns: t.columns.map((c) => {
+          if (!c.isForeignKey) return c;
+          const isStillFk = remainingRelationships.some(
+            (r) => r.sourceTableId === t.id && r.sourceColumnId === c.id
+          );
+          return isStillFk ? c : { ...c, isForeignKey: false };
+        }),
+      }));
+
+      return {
+        tables: sanitizedTables,
+        relationships: remainingRelationships,
+        selectedTableId: null,
+      };
+    });
     get().syncToProject();
   },
 
@@ -386,22 +403,34 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
 
   deleteColumn: (tableId, columnId) => {
     get().recordHistory();
-    set((state) => ({
-      tables: state.tables.map((t) => {
-        if (t.id !== tableId) return t;
-        return {
-          ...t,
-          columns: t.columns.filter((c) => c.id !== columnId),
-        };
-      }),
-      relationships: state.relationships.filter(
+    set((state) => {
+      const remainingRelationships = state.relationships.filter(
         (r) =>
           !(
             (r.sourceTableId === tableId && r.sourceColumnId === columnId) ||
             (r.targetTableId === tableId && r.targetColumnId === columnId)
           )
-      ),
-    }));
+      );
+
+      const updatedTables = state.tables.map((t) => {
+        const remainingCols = t.id === tableId ? t.columns.filter((c) => c.id !== columnId) : t.columns;
+        return {
+          ...t,
+          columns: remainingCols.map((c) => {
+            if (!c.isForeignKey) return c;
+            const isStillFk = remainingRelationships.some(
+              (r) => r.sourceTableId === t.id && r.sourceColumnId === c.id
+            );
+            return isStillFk ? c : { ...c, isForeignKey: false };
+          }),
+        };
+      });
+
+      return {
+        tables: updatedTables,
+        relationships: remainingRelationships,
+      };
+    });
     get().syncToProject();
   },
 
@@ -493,10 +522,36 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
 
   deleteRelationship: (id) => {
     get().recordHistory();
-    set((state) => ({
-      relationships: state.relationships.filter((r) => r.id !== id),
-      selectedRelationshipId: null,
-    }));
+    const relToDelete = get().relationships.find((r) => r.id === id);
+    set((state) => {
+      const remainingRels = state.relationships.filter((r) => r.id !== id);
+      const isColStillFk =
+        relToDelete &&
+        remainingRels.some(
+          (r) =>
+            r.sourceTableId === relToDelete.sourceTableId &&
+            r.sourceColumnId === relToDelete.sourceColumnId
+        );
+
+      const updatedTables =
+        relToDelete && !isColStillFk
+          ? state.tables.map((t) => {
+              if (t.id !== relToDelete.sourceTableId) return t;
+              return {
+                ...t,
+                columns: t.columns.map((c) =>
+                  c.id === relToDelete.sourceColumnId ? { ...c, isForeignKey: false } : c
+                ),
+              };
+            })
+          : state.tables;
+
+      return {
+        relationships: remainingRels,
+        selectedRelationshipId: null,
+        tables: updatedTables,
+      };
+    });
     get().syncToProject();
   },
 

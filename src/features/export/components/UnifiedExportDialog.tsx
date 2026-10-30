@@ -56,6 +56,7 @@ export function UnifiedExportDialog({ isOpen, onClose }: UnifiedExportDialogProp
   const [scale, setScale] = useState<number>(2);
   const [bgMode, setBgMode] = useState<'transparent' | 'dark' | 'light'>('dark');
   const [pdfOrientation, setPdfOrientation] = useState<'landscape' | 'portrait'>('landscape');
+  const [exportScope, setExportScope] = useState<'all' | 'viewport'>('all');
 
   const [dataCodeType, setDataCodeType] = useState<string>('markdown');
   const [copied, setCopied] = useState(false);
@@ -195,12 +196,37 @@ export function UnifiedExportDialog({ isOpen, onClose }: UnifiedExportDialogProp
       const docName = (activeDocument?.title || 'mindgraph').replace(/\s+/g, '_');
       const bg = bgMode === 'transparent' ? null : bgMode === 'dark' ? '#090d16' : '#ffffff';
 
+      const nodesToExport = isTree
+        ? mindTree.nodes.map((n) => ({ id: n.id, position: n.position, width: n.width, height: n.height }))
+        : [
+            ...dbDesigner.tables.map((t) => ({
+              id: t.id,
+              position: t.position,
+              width: 320,
+              height: 70 + t.columns.length * 32,
+            })),
+            ...dbDesigner.areas.map((a) => ({
+              id: a.id,
+              position: a.position,
+              width: a.width,
+              height: a.height,
+            })),
+            ...dbDesigner.notes.map((n) => ({
+              id: n.id,
+              position: n.position,
+              width: 240,
+              height: 180,
+            })),
+          ];
+
       await exportVisualCanvas(canvasElement, {
         format: visualFormat,
         scale,
         backgroundColor: bg,
         fileName: docName,
         pdfOrientation,
+        scope: exportScope,
+        nodes: nodesToExport,
       });
     } catch (err) {
       console.error('Visual export failed:', err);
@@ -285,6 +311,39 @@ export function UnifiedExportDialog({ isOpen, onClose }: UnifiedExportDialogProp
         {/* Tab 1: Visual Export */}
         {activeTab === 'visual' && (
           <div className="flex-1 py-4 space-y-4">
+            {/* Scope selection: Whole Project vs Visible Viewport */}
+            <div>
+              <label className="text-xs font-semibold text-slate-400 block mb-1.5">
+                {t('export.scope', 'Export Range')}
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setExportScope('all')}
+                  className={`py-2 px-3 rounded-lg border text-xs font-medium text-start transition-all flex flex-col gap-0.5 ${
+                    exportScope === 'all'
+                      ? 'bg-blue-600/30 border-blue-500 text-blue-200 shadow-sm'
+                      : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <span className="font-bold">{t('export.scopeAll', 'Entire Canvas (All Nodes)')}</span>
+                  <span className="text-[10px] opacity-75">{t('export.scopeAllDesc', 'Full graph without clipping, regardless of zoom or scroll')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExportScope('viewport')}
+                  className={`py-2 px-3 rounded-lg border text-xs font-medium text-start transition-all flex flex-col gap-0.5 ${
+                    exportScope === 'viewport'
+                      ? 'bg-blue-600/30 border-blue-500 text-blue-200 shadow-sm'
+                      : 'border-slate-800 bg-slate-800/40 text-slate-400 hover:border-slate-700'
+                  }`}
+                >
+                  <span className="font-bold">{t('export.scopeViewport', 'Current Screen (Visible Area)')}</span>
+                  <span className="text-[10px] opacity-75">{t('export.scopeViewportDesc', 'Exports only what is currently visible in your window')}</span>
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               {/* Format selection */}
               <div>
@@ -382,6 +441,7 @@ export function UnifiedExportDialog({ isOpen, onClose }: UnifiedExportDialogProp
             <div className="bg-slate-950/60 p-4 rounded-xl border border-slate-800 text-xs text-slate-400 flex items-center justify-between">
               <div>
                 <span className="font-medium text-slate-300">Ready to export: </span>
+                <span className="text-blue-400 font-bold">{exportScope === 'all' ? 'Entire Project' : 'Current Screen'}</span> as{' '}
                 <span className="uppercase text-blue-400 font-bold">{visualFormat}</span> at{' '}
                 <span className="text-blue-400 font-bold">{scale}x</span> scale with{' '}
                 <span className="text-blue-400 font-bold">{bgMode}</span> background.
