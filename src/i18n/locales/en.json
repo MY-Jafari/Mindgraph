@@ -1,0 +1,109 @@
+{
+  "app": {
+    "name": "Mindgraph",
+    "tagline": "Personal Mind Tree & Database Schema Designer",
+    "welcome": "Welcome to Mindgraph",
+    "welcomeSub": "Free-form mind mapping and visual database schema design in one seamless offline app."
+  },
+  "common": {
+    "save": "Save",
+    "saved": "Saved",
+    "saving": "Saving...",
+    "unsaved": "Unsaved changes",
+    "saveError": "Failed to save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "rename": "Rename",
+    "duplicate": "Duplicate",
+    "close": "Close",
+    "edit": "Edit",
+    "create": "Create",
+    "search": "Search...",
+    "searchDocs": "Search documents...",
+    "actions": "Actions",
+    "loading": "Loading...",
+    "settings": "Settings",
+    "help": "Help & Shortcuts",
+    "export": "Export",
+    "undo": "Undo",
+    "redo": "Redo",
+    "zoomIn": "Zoom In",
+    "zoomOut": "Zoom Out",
+    "fitView": "Fit View",
+    "backToWelcome": "Workspace Home",
+    "commandPalette": "Command Palette",
+    "pressShortcut": "Press"
+  },
+  "nav": {
+    "projects": "Projects",
+    "documents": "Documents",
+    "mindtree": "Mind Tree",
+    "dbschema": "DB Schema",
+    "all": "All",
+    "tags": "Tags",
+    "newDocument": "New Document",
+    "newProject": "New Project",
+    "openProject": "Open Project File",
+    "recentProjects": "Recent Projects",
+    "noRecentProjects": "No recent projects found",
+    "noDocuments": "No documents yet. Create one to begin!"
+  },
+  "templates": {
+    "title": "Start from a Template",
+    "blankMindmap": "Blank Mind Map",
+    "blankMindmapDesc": "Start fresh with a central idea and free-form branching.",
+    "brainstorm": "Brainstorming Tree",
+    "brainstormDesc": "Organize ideas, pros/cons, and action items visually.",
+    "blogDB": "Blog & CMS Schema",
+    "blogDBDesc": "Ready-to-use schema with posts, categories, tags, and authors.",
+    "ecommerceDB": "E-Commerce Schema",
+    "ecommerceDBDesc": "Products, orders, customers, inventory, and payment relations.",
+    "authDB": "Authentication & RBAC",
+    "authDBDesc": "Users, roles, permissions, sessions, and audit logs."
+  },
+  "project": {
+    "titlePlaceholder": "Project Name",
+    "descriptionPlaceholder": "Project description (optional)",
+    "docTitlePlaceholder": "Document Title",
+    "selectType": "Select Document Type",
+    "savedToFile": "Project saved to file successfully",
+    "openedFile": "Project opened successfully",
+    "newProjectModalTitle": "Create New Project",
+    "newDocModalTitle": "Create New Document",
+    "deleteProjectConfirm": "Are you sure you want to delete this project? This action cannot be undone.",
+    "deleteDocConfirm": "Are you sure you want to delete this document?",
+    "untitledProject": "Untitled Project",
+    "untitledDoc": "Untitled Document"
+  },
+  "theme": {
+    "toggleTheme": "Toggle Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "accentColor": "Accent Color",
+    "indigo": "Indigo",
+    "violet": "Violet",
+    "blue": "Blue",
+    "emerald": "Emerald",
+    "amber": "Amber",
+    "rose": "Rose"
+  },
+  "dialect": {
+    "label": "SQL Dialect",
+    "postgresql": "PostgreSQL",
+    "mysql": "MySQL",
+    "mariadb": "MariaDB",
+    "sqlite": "SQLite",
+    "sqlserver": "SQL Server",
+    "oracle": "Oracle"
+  },
+  "mindtree": {
+    "placeholder": "Mind Tree Canvas",
+    "placeholderSub": "Ready for visual thinking and keyboard-driven tree construction."
+  },
+  "dbschema": {
+    "placeholder": "Database Schema Designer",
+    "placeholderSub": "Ready for visual table modeling, foreign keys, and DDL generation."
+  }
+}

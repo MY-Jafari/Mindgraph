@@ -1,0 +1,109 @@
+{
+  "app": {
+    "name": "مایندگراف",
+    "tagline": "طراح ساختار ذهنی و پایگاه‌داده بصری",
+    "welcome": "به مایندگراف خوش آمدید",
+    "welcomeSub": "ترسیم آزاد نقشه‌های ذهنی و طراحی بصری پایگاه‌داده، همه‌چیز در یک ابزار یکپارچه و آفلاین."
+  },
+  "common": {
+    "save": "ذخیره",
+    "saved": "ذخیره شد",
+    "saving": "در حال ذخیره...",
+    "unsaved": "تغییرات ذخیره‌نشده",
+    "saveError": "خطا در ذخیره‌سازی",
+    "cancel": "انصراف",
+    "confirm": "تایید",
+    "delete": "حذف",
+    "rename": "تغییر نام",
+    "duplicate": "تکثیر",
+    "close": "بستن",
+    "edit": "ویرایش",
+    "create": "ایجاد",
+    "search": "جستجو...",
+    "searchDocs": "جستجوی اسناد...",
+    "actions": "عملیات",
+    "loading": "در حال بارگذاری...",
+    "settings": "تنظیمات",
+    "help": "راهنما و کلیدهای میانبر",
+    "export": "خروجی",
+    "undo": "واگرد (Undo)",
+    "redo": "ازنو (Redo)",
+    "zoomIn": "بزرگ‌نمایی",
+    "zoomOut": "کوچک‌نمایی",
+    "fitView": "نمای کامل",
+    "backToWelcome": "صفحه اصلی محیط کار",
+    "commandPalette": "پالت دستورات",
+    "pressShortcut": "فشار دهید"
+  },
+  "nav": {
+    "projects": "پروژه‌ها",
+    "documents": "اسناد",
+    "mindtree": "درخت ذهن",
+    "dbschema": "طراح پایگاه‌داده",
+    "all": "همه",
+    "tags": "برچسب‌ها",
+    "newDocument": "سند جدید",
+    "newProject": "پروژه جدید",
+    "openProject": "باز کردن فایل پروژه",
+    "recentProjects": "پروژه‌های اخیر",
+    "noRecentProjects": "هیچ پروژه اخیری یافت نشد",
+    "noDocuments": "هنوز سندی وجود ندارد. برای شروع یک سند بسازید!"
+  },
+  "templates": {
+    "title": "شروع با قالب آماده",
+    "blankMindmap": "نقشه ذهنی خام",
+    "blankMindmapDesc": "شروع از یک ایده مرکزی و شاخه‌بندی آزادانه.",
+    "brainstorm": "درخت ایده‌پردازی",
+    "brainstormDesc": "دسته‌بندی ایده‌ها، مزایا/معایب و وظایف به صورت بصری.",
+    "blogDB": "طرح بلاگ و مدیریت محتوا",
+    "blogDBDesc": "جداول آماده پست‌ها، دسته‌بندی‌ها، برچسب‌ها و نویسندگان.",
+    "ecommerceDB": "طرح فروشگاه اینترنتی",
+    "ecommerceDBDesc": "محصولات، سفارش‌ها، مشتریان، انبارداری و پرداخت‌ها.",
+    "authDB": "سیستم احراز هویت و دسترسی‌ها",
+    "authDBDesc": "کاربران، نقش‌ها، سطوح دسترسی، نشست‌ها و لاگ‌ها."
+  },
+  "project": {
+    "titlePlaceholder": "نام پروژه",
+    "descriptionPlaceholder": "توضیحات پروژه (اختیاری)",
+    "docTitlePlaceholder": "عنوان سند",
+    "selectType": "نوع سند را انتخاب کنید",
+    "savedToFile": "پروژه با موفقیت در فایل ذخیره شد",
+    "openedFile": "پروژه با موفقیت باز شد",
+    "newProjectModalTitle": "ایجاد پروژه جدید",
+    "newDocModalTitle": "ایجاد سند جدید",
+    "deleteProjectConfirm": "آیا از حذف این پروژه مطمئن هستید؟ این عملیات قابل بازگشت نیست.",
+    "deleteDocConfirm": "آیا از حذف این سند مطمئن هستید؟",
+    "untitledProject": "پروژه بدون عنوان",
+    "untitledDoc": "سند بدون عنوان"
+  },
+  "theme": {
+    "toggleTheme": "تغییر تم",
+    "light": "روشن",
+    "dark": "تاریک",
+    "system": "هماهنگ با سیستم",
+    "accentColor": "رنگ شاخص",
+    "indigo": "نیلی",
+    "violet": "بنفش",
+    "blue": "آبی",
+    "emerald": "زمردی",
+    "amber": "کهربایی",
+    "rose": "رز"
+  },
+  "dialect": {
+    "label": "گویش SQL",
+    "postgresql": "PostgreSQL",
+    "mysql": "MySQL",
+    "mariadb": "MariaDB",
+    "sqlite": "SQLite",
+    "sqlserver": "SQL Server",
+    "oracle": "Oracle"
+  },
+  "mindtree": {
+    "placeholder": "بوم نقشه ذهنی",
+    "placeholderSub": "آماده برای تفکر بصری و ساختاردهی درختی با کلیدهای میانبر."
+  },
+  "dbschema": {
+    "placeholder": "طراح پایگاه‌داده بصری",
+    "placeholderSub": "آماده برای مدلسازی جداول، کلیدهای خارجی و خروجی DDL."
+  }
+}

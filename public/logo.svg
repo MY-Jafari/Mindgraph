@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="128" fill="#0f172a"/>
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="50%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <!-- Mind Tree branch -->
+  <circle cx="160" cy="180" r="36" fill="url(#grad)"/>
+  <circle cx="110" cy="320" r="28" fill="#6366f1" fill-opacity="0.8"/>
+  <circle cx="210" cy="340" r="24" fill="#06b6d4" fill-opacity="0.8"/>
+  <path d="M160 216 L110 292" stroke="url(#grad)" stroke-width="8" stroke-linecap="round"/>
+  <path d="M160 216 L210 316" stroke="url(#grad)" stroke-width="8" stroke-linecap="round"/>
+  
+  <!-- DB Schema table -->
+  <rect x="290" y="150" width="150" height="200" rx="16" fill="#1e293b" stroke="url(#grad)" stroke-width="6"/>
+  <rect x="290" y="150" width="150" height="48" rx="16" fill="url(#grad)"/>
+  <line x1="310" y1="230" x2="420" y2="230" stroke="#475569" stroke-width="6" stroke-linecap="round"/>
+  <line x1="310" y1="265" x2="390" y2="265" stroke="#475569" stroke-width="6" stroke-linecap="round"/>
+  <line x1="310" y1="300" x2="410" y2="300" stroke="#475569" stroke-width="6" stroke-linecap="round"/>
+  
+  <!-- Connecting link between mind and db -->
+  <path d="M196 180 C 240 180, 240 230, 290 230" stroke="#38bdf8" stroke-width="6" stroke-dasharray="8 8" stroke-linecap="round"/>
+</svg>
