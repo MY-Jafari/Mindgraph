@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ReactFlow,
   Background,
@@ -17,6 +17,12 @@ import { RelationshipEdge } from './components/RelationshipEdge';
 import { DBAreaNode } from './components/DBAreaNode';
 import { DBNoteNode } from './components/DBNoteNode';
 import { DBDesignerToolbar } from './components/DBDesignerToolbar';
+import { DBExportDialog } from './components/DBExportDialog';
+import { DBImportDialog } from './components/DBImportDialog';
+import { DBLinterDrawer } from './components/DBLinterDrawer';
+import { SchemaDiffModal } from './components/SchemaDiffModal';
+import { QuickAddCommandBar } from './components/QuickAddCommandBar';
+
 import { useDBDesignerStore } from './dbDesignerStore';
 import type { Document, DBTable, DBRelationship } from '../projects/types';
 
@@ -55,6 +61,11 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
     redo,
   } = useDBDesignerStore();
 
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isLinterOpen, setIsLinterOpen] = useState(false);
+  const [isDiffOpen, setIsDiffOpen] = useState(false);
+
   useEffect(() => {
     if (document.id !== documentId) {
       initDocument(document);
@@ -68,7 +79,7 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
       type: 'area',
       position: area.position,
       data: area as unknown as Record<string, unknown>,
-      zIndex: -1, // Areas stay in background
+      zIndex: -1,
     }));
 
     const noteNodes = (notes || []).map((note) => ({
@@ -94,7 +105,6 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
   // Map relationships to React Flow edges with column row handle anchoring
   const flowEdges = useMemo(() => {
     return (relationships || []).map((rel: DBRelationship) => {
-      // Find source table and target table to orient connection handles
       const sourceTable = tables.find((t) => t.id === rel.sourceTableId);
       const targetTable = tables.find((t) => t.id === rel.targetTableId);
 
@@ -150,7 +160,6 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
         connection.sourceHandle &&
         connection.targetHandle
       ) {
-        // Extract column IDs from handle names: "col-{colId}-right" / "col-{colId}-left"
         const sourceColMatch = connection.sourceHandle.match(/^col-(.+)-(left|right)$/);
         const targetColMatch = connection.targetHandle.match(/^col-(.+)-(left|right)$/);
 
@@ -253,8 +262,22 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
         />
       </ReactFlow>
 
+      {/* Quick Add text command bar */}
+      <QuickAddCommandBar />
+
       {/* DB Designer Toolbar overlay */}
-      <DBDesignerToolbar />
+      <DBDesignerToolbar
+        onOpenExport={() => setIsExportOpen(true)}
+        onOpenImport={() => setIsImportOpen(true)}
+        onOpenLinter={() => setIsLinterOpen(true)}
+        onOpenDiff={() => setIsDiffOpen(true)}
+      />
+
+      {/* Advanced Modals */}
+      <DBExportDialog isOpen={isExportOpen} onClose={() => setIsExportOpen(false)} />
+      <DBImportDialog isOpen={isImportOpen} onClose={() => setIsImportOpen(false)} />
+      <DBLinterDrawer isOpen={isLinterOpen} onClose={() => setIsLinterOpen(false)} />
+      <SchemaDiffModal isOpen={isDiffOpen} onClose={() => setIsDiffOpen(false)} />
     </div>
   );
 }

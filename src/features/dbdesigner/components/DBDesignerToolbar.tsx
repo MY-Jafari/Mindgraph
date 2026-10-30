@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Plus,
@@ -9,6 +10,11 @@ import {
   Database,
   Sparkles,
   GitBranch,
+  Download,
+  Upload,
+  ShieldAlert,
+  History,
+  GitMerge,
 } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import {
@@ -19,11 +25,27 @@ import {
   DropdownMenuTrigger,
 } from '@/shared/components/ui/dropdown-menu';
 import { useDBDesignerStore } from '../dbDesignerStore';
+import { validateSchema } from '../services/linter';
+import { createJunctionTable } from '../services/m2mHelper';
 import type { SQLDialect, CardinalityNotation } from '../../projects/types';
 
-export function DBDesignerToolbar() {
+interface DBDesignerToolbarProps {
+  onOpenExport: () => void;
+  onOpenImport: () => void;
+  onOpenLinter: () => void;
+  onOpenDiff: () => void;
+}
+
+export function DBDesignerToolbar({
+  onOpenExport,
+  onOpenImport,
+  onOpenLinter,
+  onOpenDiff,
+}: DBDesignerToolbarProps) {
   const { t } = useTranslation();
   const {
+    tables,
+    relationships,
     addTable,
     addArea,
     addNote,
@@ -38,6 +60,8 @@ export function DBDesignerToolbar() {
     autoLayout,
     isSnapToGrid,
     setSnapToGrid,
+    recordHistory,
+    syncToProject,
   } = useDBDesignerStore();
 
   const DIALECT_OPTIONS: SQLDialect[] = [
@@ -55,6 +79,28 @@ export function DBDesignerToolbar() {
     { id: 'idef1x', label: 'IDEF1X' },
     { id: 'chen', label: 'Chen-lite' },
   ];
+
+  const issues = useMemo(() => {
+    return validateSchema(tables, relationships, dialect, 'snake_case');
+  }, [tables, relationships, dialect]);
+
+  const errorCount = issues.filter((i) => i.severity === 'error').length;
+
+  const handleM2MHelper = () => {
+    if (tables.length < 2) {
+      alert('You need at least 2 tables to generate a Many-to-Many junction table.');
+      return;
+    }
+    const tblA = tables[0];
+    const tblB = tables[1];
+    recordHistory();
+    const { junctionTable, relationships: newRels } = createJunctionTable(tblA, tblB);
+    useDBDesignerStore.setState({
+      tables: [...tables, junctionTable],
+      relationships: [...relationships, ...newRels],
+    });
+    syncToProject();
+  };
 
   return (
     <div className="absolute bottom-6 start-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 p-1.5 rounded-2xl bg-card/90 backdrop-blur-md border border-border shadow-xl select-none">
@@ -74,7 +120,7 @@ export function DBDesignerToolbar() {
         variant="ghost"
         size="sm"
         onClick={() => addArea()}
-        className="h-8 gap-1.5 px-2.5 text-xs text-foreground hover:bg-accent"
+        className="h-8 gap-1.5 px-2 text-xs text-foreground hover:bg-accent"
         title="Add table grouping area"
       >
         <Layers className="w-3.5 h-3.5 text-primary" />
@@ -86,11 +132,23 @@ export function DBDesignerToolbar() {
         variant="ghost"
         size="sm"
         onClick={() => addNote()}
-        className="h-8 gap-1.5 px-2.5 text-xs text-foreground hover:bg-accent"
+        className="h-8 gap-1.5 px-2 text-xs text-foreground hover:bg-accent"
         title="Add personal annotation note"
       >
         <StickyNote className="w-3.5 h-3.5 text-amber-500" />
         <span className="hidden sm:inline">Note</span>
+      </Button>
+
+      {/* Many-to-Many Junction Helper */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={handleM2MHelper}
+        className="h-8 gap-1.5 px-2 text-xs text-foreground hover:bg-accent"
+        title="Many-to-Many Helper (Create Junction Table)"
+      >
+        <GitMerge className="w-3.5 h-3.5 text-purple-500" />
+        <span className="hidden md:inline">M:N Junction</span>
       </Button>
 
       <div className="h-4 w-px bg-border mx-0.5" />
@@ -122,7 +180,7 @@ export function DBDesignerToolbar() {
       {/* Dialect Selector */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2.5 text-xs font-medium">
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 px-2 text-xs font-medium">
             <Database className="w-3.5 h-3.5 text-emerald-500" />
             <span className="uppercase">{dialect}</span>
           </Button>
@@ -147,9 +205,9 @@ export function DBDesignerToolbar() {
       {/* Notation Selector */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2.5 text-xs text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground">
             <GitBranch className="w-3.5 h-3.5 text-blue-500" />
-            <span className="hidden md:inline">Notation</span>
+            <span className="hidden lg:inline">{notation}</span>
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="center" className="w-40">
@@ -189,6 +247,52 @@ export function DBDesignerToolbar() {
         className={`h-8 w-8 ${isSnapToGrid ? 'text-primary bg-primary/10' : 'text-muted-foreground'}`}
       >
         <Grid className="w-4 h-4" />
+      </Button>
+
+      <div className="h-4 w-px bg-border mx-0.5" />
+
+      {/* Advanced Tools: Import, Export, Diff, Linter */}
+      <Button
+        variant="ghost"
+        size="iconSm"
+        onClick={onOpenImport}
+        title="Import Schema (SQL/DBML/Text)"
+        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+      >
+        <Upload className="w-4 h-4" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="iconSm"
+        onClick={onOpenExport}
+        title="Export DDL, Mermaid, ORM, Seed"
+        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+      >
+        <Download className="w-4 h-4" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="iconSm"
+        onClick={onOpenDiff}
+        title="Schema Snapshots & Diff"
+        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+      >
+        <History className="w-4 h-4" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onOpenLinter}
+        title="Schema Linter"
+        className={`h-8 px-2 gap-1 text-xs ${
+          errorCount > 0 ? 'text-rose-500 font-bold bg-rose-500/10' : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        <ShieldAlert className="w-3.5 h-3.5" />
+        {issues.length > 0 && <span>{issues.length}</span>}
       </Button>
     </div>
   );
