@@ -232,3 +232,44 @@ export function generateSQLAlchemy(tables: DBTable[]): string {
 
   return blocks.join('\n');
 }
+
+/**
+ * Generates DBML (Database Markup Language) syntax.
+ */
+export function generateDBML(tables: DBTable[], relationships: DBRelationship[]): string {
+  const lines: string[] = ['// DBML Schema definition', ''];
+
+  for (const tbl of tables) {
+    lines.push(`Table ${tbl.name} {`);
+    for (const col of tbl.columns) {
+      const settings: string[] = [];
+      if (col.isPrimaryKey) settings.push('pk');
+      if (col.isUnique && !col.isPrimaryKey) settings.push('unique');
+      if (!col.isNullable && !col.isPrimaryKey) settings.push('not null');
+      if (col.defaultValue) settings.push(`default: \`${col.defaultValue}\``);
+      if (col.comment) settings.push(`note: '${col.comment}'`);
+
+      const settingsStr = settings.length > 0 ? ` [${settings.join(', ')}]` : '';
+      lines.push(`  ${col.name} ${col.type}${settingsStr}`);
+    }
+    if (tbl.comment) {
+      lines.push(`  Note: '${tbl.comment}'`);
+    }
+    lines.push('}\n');
+  }
+
+  // Relations
+  for (const rel of relationships) {
+    const src = tables.find((t) => t.id === rel.sourceTableId);
+    const tgt = tables.find((t) => t.id === rel.targetTableId);
+    if (src && tgt) {
+      const srcCol = src.columns.find((c) => c.id === rel.sourceColumnId);
+      const tgtCol = tgt.columns.find((c) => c.id === rel.targetColumnId);
+      if (srcCol && tgtCol) {
+        lines.push(`Ref: ${src.name}.${srcCol.name} > ${tgt.name}.${tgtCol.name}`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}

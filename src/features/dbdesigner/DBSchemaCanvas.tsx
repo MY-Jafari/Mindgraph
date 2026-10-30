@@ -9,6 +9,7 @@ import {
   applyNodeChanges,
   BackgroundVariant,
   ReactFlowProvider,
+  useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -65,6 +66,24 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isLinterOpen, setIsLinterOpen] = useState(false);
   const [isDiffOpen, setIsDiffOpen] = useState(false);
+
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+
+  useEffect(() => {
+    const onIn = () => zoomIn();
+    const onOut = () => zoomOut();
+    const onFit = () => fitView({ padding: 0.2 });
+
+    window.addEventListener('mindgraph-zoom-in', onIn);
+    window.addEventListener('mindgraph-zoom-out', onOut);
+    window.addEventListener('mindgraph-zoom-fit', onFit);
+
+    return () => {
+      window.removeEventListener('mindgraph-zoom-in', onIn);
+      window.removeEventListener('mindgraph-zoom-out', onOut);
+      window.removeEventListener('mindgraph-zoom-fit', onFit);
+    };
+  }, [zoomIn, zoomOut, fitView]);
 
   useEffect(() => {
     if (document.id !== documentId) {

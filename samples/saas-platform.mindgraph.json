@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "id": "proj-sample-saas",
+  "name": "CloudScale SaaS Platform",
+  "description": "Full-stack architecture mind map and production database schema",
+  "createdAt": "2026-10-30T12:00:00.000Z",
+  "updatedAt": "2026-10-30T12:00:00.000Z",
+  "settings": {
+    "defaultDialect": "postgresql",
+    "namingConvention": "snake_case",
+    "autosaveIntervalMs": 800
+  },
+  "documents": [
+    {
+      "id": "doc-saas-mindtree",
+      "projectId": "proj-sample-saas",
+      "title": "System Architecture & Roadmap",
+      "type": "mindtree",
+      "createdAt": "2026-10-30T12:00:00.000Z",
+      "updatedAt": "2026-10-30T12:00:00.000Z",
+      "tags": ["architecture", "roadmap"],
+      "content": {
+        "rootNodeId": "node-saas-root",
+        "layoutMode": "both",
+        "nodes": [
+          {
+            "id": "node-saas-root",
+            "type": "text",
+            "position": { "x": 400, "y": 300 },
+            "data": {
+              "label": "☁️ CloudScale Platform",
+              "shape": "hexagon",
+              "fill": "#2563eb",
+              "textColor": "#ffffff",
+              "fontSize": 20
+            }
+          },
+          {
+            "id": "node-frontend",
+            "type": "text",
+            "position": { "x": 150, "y": 200 },
+            "data": {
+              "label": "Frontend (Vite PWA)",
+              "shape": "pill",
+              "fill": "#0284c7",
+              "textColor": "#ffffff",
+              "parentId": "node-saas-root"
+            }
+          },
+          {
+            "id": "node-backend",
+            "type": "text",
+            "position": { "x": 650, "y": 200 },
+            "data": {
+              "label": "Backend (GraphQL & REST)",
+              "shape": "pill",
+              "fill": "#7c3aed",
+              "textColor": "#ffffff",
+              "parentId": "node-saas-root"
+            }
+          },
+          {
+            "id": "node-database",
+            "type": "text",
+            "position": { "x": 650, "y": 400 },
+            "data": {
+              "label": "Database (PostgreSQL)",
+              "shape": "pill",
+              "fill": "#059669",
+              "textColor": "#ffffff",
+              "parentId": "node-saas-root"
+            }
+          },
+          {
+            "id": "node-tasks",
+            "type": "checklist",
+            "position": { "x": 150, "y": 400 },
+            "data": {
+              "label": "Launch Tasks",
+              "parentId": "node-saas-root",
+              "items": [
+                { "id": "t1", "text": "Deploy Staging Environment", "done": true },
+                { "id": "t2", "text": "Run Load Testing", "done": true },
+                { "id": "t3", "text": "Final Security Audit", "done": false }
+              ]
+            }
+          }
+        ],
+        "edges": [
+          { "id": "e1", "source": "node-saas-root", "target": "node-frontend" },
+          { "id": "e2", "source": "node-saas-root", "target": "node-backend" },
+          { "id": "e3", "source": "node-saas-root", "target": "node-database" },
+          { "id": "e4", "source": "node-saas-root", "target": "node-tasks" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 1 }
+      }
+    },
+    {
+      "id": "doc-saas-dbschema",
+      "projectId": "proj-sample-saas",
+      "title": "PostgreSQL Production Schema",
+      "type": "dbschema",
+      "createdAt": "2026-10-30T12:00:00.000Z",
+      "updatedAt": "2026-10-30T12:00:00.000Z",
+      "tags": ["database", "production"],
+      "content": {
+        "dialect": "postgresql",
+        "tables": [
+          {
+            "id": "tbl-orgs",
+            "name": "organizations",
+            "color": "#2563eb",
+            "position": { "x": 80, "y": 100 },
+            "columns": [
+              { "id": "col-org-id", "name": "id", "type": "uuid", "isPrimaryKey": true, "defaultValue": "gen_random_uuid()" },
+              { "id": "col-org-name", "name": "name", "type": "varchar(100)", "isNullable": false },
+              { "id": "col-org-slug", "name": "slug", "type": "varchar(100)", "isUnique": true, "isNullable": false },
+              { "id": "col-org-created", "name": "created_at", "type": "timestamptz", "defaultValue": "now()" }
+            ]
+          },
+          {
+            "id": "tbl-users",
+            "name": "users",
+            "color": "#7c3aed",
+            "position": { "x": 450, "y": 100 },
+            "columns": [
+              { "id": "col-usr-id", "name": "id", "type": "uuid", "isPrimaryKey": true, "defaultValue": "gen_random_uuid()" },
+              { "id": "col-usr-org-id", "name": "organization_id", "type": "uuid", "isForeignKey": true, "isNullable": false },
+              { "id": "col-usr-email", "name": "email", "type": "varchar(255)", "isUnique": true, "isNullable": false },
+              { "id": "col-usr-name", "name": "full_name", "type": "varchar(100)", "isNullable": false },
+              { "id": "col-usr-role", "name": "role", "type": "varchar(50)", "defaultValue": "'member'" }
+            ]
+          },
+          {
+            "id": "tbl-subs",
+            "name": "subscriptions",
+            "color": "#059669",
+            "position": { "x": 80, "y": 380 },
+            "columns": [
+              { "id": "col-sub-id", "name": "id", "type": "uuid", "isPrimaryKey": true, "defaultValue": "gen_random_uuid()" },
+              { "id": "col-sub-org-id", "name": "organization_id", "type": "uuid", "isForeignKey": true, "isNullable": false },
+              { "id": "col-sub-plan", "name": "plan_tier", "type": "varchar(50)", "isNullable": false },
+              { "id": "col-sub-status", "name": "status", "type": "varchar(50)", "defaultValue": "'active'" }
+            ]
+          }
+        ],
+        "relationships": [
+          {
+            "id": "rel-org-users",
+            "sourceTableId": "tbl-users",
+            "sourceColumnId": "col-usr-org-id",
+            "targetTableId": "tbl-orgs",
+            "targetColumnId": "col-org-id",
+            "cardinality": "one-to-many",
+            "onDelete": "CASCADE"
+          },
+          {
+            "id": "rel-org-subs",
+            "sourceTableId": "tbl-subs",
+            "sourceColumnId": "col-sub-org-id",
+            "targetTableId": "tbl-orgs",
+            "targetColumnId": "col-org-id",
+            "cardinality": "one-to-many",
+            "onDelete": "CASCADE"
+          }
+        ],
+        "areas": [],
+        "notes": [],
+        "viewport": { "x": 0, "y": 0, "zoom": 1 }
+      }
+    }
+  ]
+}

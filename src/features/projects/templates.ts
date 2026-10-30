@@ -391,3 +391,169 @@ export function createTemplateAuthDB(): Project {
     ],
   };
 }
+
+export function createTemplateProjectRoadmap(): Project {
+  const now = new Date().toISOString();
+  const projId = `proj-template-roadmap-${Date.now()}`;
+  const docId = `doc-roadmap-${Date.now()}`;
+
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    id: projId,
+    name: 'Product Roadmap & Milestones',
+    description: 'Quarterly breakdown, feature milestones, and deliverables',
+    createdAt: now,
+    updatedAt: now,
+    settings: {
+      defaultDialect: 'postgresql',
+      namingConvention: 'snake_case',
+      autosaveIntervalMs: 800,
+    },
+    documents: [
+      {
+        id: docId,
+        projectId: projId,
+        title: 'Roadmap Tree',
+        type: 'mindtree',
+        createdAt: now,
+        updatedAt: now,
+        tags: ['roadmap', 'product'],
+        content: {
+          nodes: [
+            {
+              id: 'n-root',
+              type: 'text',
+              position: { x: 300, y: 250 },
+              data: {
+                label: '🚀 Product Roadmap 2026',
+                shape: 'hexagon',
+                fill: '#2563eb',
+                textColor: '#ffffff',
+                fontSize: 18,
+              },
+            },
+            {
+              id: 'n-q1',
+              type: 'text',
+              position: { x: 50, y: 150 },
+              data: {
+                label: 'Q1: Core MVP',
+                shape: 'pill',
+                fill: '#10b981',
+                textColor: '#ffffff',
+                fontSize: 14,
+              },
+            },
+            {
+              id: 'n-q2',
+              type: 'text',
+              position: { x: 50, y: 350 },
+              data: {
+                label: 'Q2: Advanced Features',
+                shape: 'pill',
+                fill: '#f59e0b',
+                textColor: '#ffffff',
+                fontSize: 14,
+              },
+            },
+            {
+              id: 'n-q3',
+              type: 'text',
+              position: { x: 550, y: 250 },
+              data: {
+                label: 'Q3: Enterprise & Scale',
+                shape: 'pill',
+                fill: '#8b5cf6',
+                textColor: '#ffffff',
+                fontSize: 14,
+              },
+            },
+          ],
+          edges: [
+            { id: 'e-1', source: 'n-root', target: 'n-q1' },
+            { id: 'e-2', source: 'n-root', target: 'n-q2' },
+            { id: 'e-3', source: 'n-root', target: 'n-q3' },
+          ],
+          viewport: { x: 0, y: 0, zoom: 1 },
+          rootNodeId: 'n-root',
+          layoutMode: 'freeform',
+        },
+      },
+    ],
+  };
+}
+
+export function createTemplateSaaSDB(): Project {
+  const now = new Date().toISOString();
+  const projId = `proj-template-saas-${Date.now()}`;
+  const docId = `doc-saas-schema-${Date.now()}`;
+
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    id: projId,
+    name: 'SaaS Multi-Tenant Database',
+    description: 'Organizations, subscriptions, tenants, and membership schema',
+    createdAt: now,
+    updatedAt: now,
+    settings: {
+      defaultDialect: 'postgresql',
+      namingConvention: 'snake_case',
+      autosaveIntervalMs: 800,
+    },
+    documents: [
+      {
+        id: docId,
+        projectId: projId,
+        title: 'SaaS Multi-Tenant Schema',
+        type: 'dbschema',
+        createdAt: now,
+        updatedAt: now,
+        tags: ['saas', 'multitenant', 'billing'],
+        content: {
+          dialect: 'postgresql',
+          tables: [
+            {
+              id: 'tbl-tenants',
+              name: 'organizations',
+              color: '#3b82f6',
+              position: { x: 80, y: 120 },
+              columns: [
+                { id: 'col-t1', name: 'id', type: 'uuid', isPrimaryKey: true, defaultValue: 'gen_random_uuid()' },
+                { id: 'col-t2', name: 'name', type: 'varchar(100)', isNullable: false },
+                { id: 'col-t3', name: 'slug', type: 'varchar(100)', isUnique: true, isNullable: false },
+                { id: 'col-t4', name: 'created_at', type: 'timestamptz', defaultValue: 'now()' },
+              ],
+            },
+            {
+              id: 'tbl-subscriptions',
+              name: 'subscriptions',
+              color: '#10b981',
+              position: { x: 420, y: 120 },
+              columns: [
+                { id: 'col-s1', name: 'id', type: 'uuid', isPrimaryKey: true, defaultValue: 'gen_random_uuid()' },
+                { id: 'col-s2', name: 'organization_id', type: 'uuid', isForeignKey: true, isNullable: false },
+                { id: 'col-s3', name: 'plan', type: 'varchar(50)', isNullable: false },
+                { id: 'col-s4', name: 'status', type: 'varchar(50)', isNullable: false, defaultValue: "'active'" },
+                { id: 'col-s5', name: 'current_period_end', type: 'timestamptz', isNullable: false },
+              ],
+            },
+          ],
+          relationships: [
+            {
+              id: 'rel-org-sub',
+              sourceTableId: 'tbl-subscriptions',
+              sourceColumnId: 'col-s2',
+              targetTableId: 'tbl-tenants',
+              targetColumnId: 'col-t1',
+              cardinality: 'one-to-many',
+              onDelete: 'CASCADE',
+            },
+          ],
+          areas: [],
+          notes: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+        },
+      },
+    ],
+  };
+}

@@ -19,6 +19,9 @@
     "close": "Close",
     "edit": "Edit",
     "create": "Create",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "download": "Download File",
     "search": "Search...",
     "searchDocs": "Search documents...",
     "actions": "Actions",
@@ -60,7 +63,11 @@
     "ecommerceDB": "E-Commerce Schema",
     "ecommerceDBDesc": "Products, orders, customers, inventory, and payment relations.",
     "authDB": "Authentication & RBAC",
-    "authDBDesc": "Users, roles, permissions, sessions, and audit logs."
+    "authDBDesc": "Users, roles, permissions, sessions, and audit logs.",
+    "roadmap": "Product Roadmap",
+    "roadmapDesc": "Quarterly milestones, deliverables, and goals.",
+    "saasDB": "SaaS Multi-Tenant",
+    "saasDBDesc": "Organizations, subscriptions, tenants, and membership schema."
   },
   "project": {
     "titlePlaceholder": "Project Name",
@@ -97,6 +104,73 @@
     "sqlite": "SQLite",
     "sqlserver": "SQL Server",
     "oracle": "Oracle"
+  },
+  "export": {
+    "title": "Export & Backup",
+    "format": "Format",
+    "scale": "Resolution / Scale",
+    "background": "Canvas Background",
+    "pdfOrientation": "PDF Orientation",
+    "downloadButton": "Download Image",
+    "tabs": {
+      "visual": "Visual (Image & PDF)",
+      "data": "Document & Code",
+      "backup": "Full ZIP Backup"
+    },
+    "backup": {
+      "title": "Export Full Backup Archive (ZIP)",
+      "desc": "Packages all your projects, documents, embedded images, file blobs, and settings into an offline ZIP archive.",
+      "button": "Download ZIP"
+    },
+    "restore": {
+      "title": "Restore from Backup Archive (ZIP)",
+      "desc": "Upload a previously exported .zip backup file to restore projects and binary attachments.",
+      "button": "Select ZIP File"
+    }
+  },
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "general": "General",
+    "mindTree": "Mind Tree",
+    "dbDesigner": "DB Designer",
+    "commandPalette": "Open Command Palette",
+    "help": "Open Keyboard Shortcuts Help",
+    "save": "Save Project to Disk",
+    "undo": "Undo last action",
+    "redo": "Redo last action",
+    "addChild": "Add Child node to selected",
+    "addSibling": "Add Sibling node",
+    "deleteNode": "Delete selected node(s)",
+    "editNode": "Inline edit node label",
+    "toggleCollapse": "Toggle collapse / expand branch",
+    "navigateNodes": "Navigate between connected nodes",
+    "copyNode": "Copy selected node",
+    "pasteNode": "Paste node under selected",
+    "duplicateNode": "Duplicate selected node",
+    "multiSelect": "Multi-select multiple nodes",
+    "createRelation": "Connect column handles to create Foreign Key",
+    "editTable": "Edit table title or column name",
+    "deleteElement": "Remove selected table or relation line",
+    "moveTable": "Reposition table on canvas"
+  },
+  "command": {
+    "placeholder": "Type a command or search...",
+    "noResults": "No matching commands found",
+    "documents": "Documents",
+    "newMindTree": "New Mind Tree Document",
+    "newDBSchema": "New DB Schema Document",
+    "general": "Project & File",
+    "saveProject": "Save Project (.mindgraph.json)",
+    "closeProject": "Close Project & Back to Welcome",
+    "export": "Export & Backup",
+    "openExport": "Export & Backup Dialog (PNG, PDF, SVG, DDL, ZIP)",
+    "appearance": "Appearance",
+    "themeDark": "Switch to Dark Theme",
+    "themeLight": "Switch to Light Theme",
+    "themeSystem": "Switch to System Theme",
+    "language": "Language",
+    "help": "Help",
+    "shortcutHelp": "Keyboard Shortcuts Reference"
   },
   "mindtree": {
     "placeholder": "Mind Tree Canvas",

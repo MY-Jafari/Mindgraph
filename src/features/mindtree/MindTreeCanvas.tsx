@@ -11,6 +11,7 @@ import {
   applyEdgeChanges,
   BackgroundVariant,
   ReactFlowProvider,
+  useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -85,6 +86,24 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isPresentationOpen, setIsPresentationOpen] = useState(false);
   const [isNotesPanelOpen, setIsNotesPanelOpen] = useState(false);
+
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+
+  useEffect(() => {
+    const onIn = () => zoomIn();
+    const onOut = () => zoomOut();
+    const onFit = () => fitView({ padding: 0.2 });
+
+    window.addEventListener('mindgraph-zoom-in', onIn);
+    window.addEventListener('mindgraph-zoom-out', onOut);
+    window.addEventListener('mindgraph-zoom-fit', onFit);
+
+    return () => {
+      window.removeEventListener('mindgraph-zoom-in', onIn);
+      window.removeEventListener('mindgraph-zoom-out', onOut);
+      window.removeEventListener('mindgraph-zoom-fit', onFit);
+    };
+  }, [zoomIn, zoomOut, fitView]);
 
   // Load document on mount or document switch
   useEffect(() => {

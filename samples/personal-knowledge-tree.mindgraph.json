@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "id": "proj-sample-knowledge",
+  "name": "Personal Knowledge & Study Notes",
+  "description": "Rich mind mapping demo with checklists, code snippets, links, and markdown notes",
+  "createdAt": "2026-10-30T12:00:00.000Z",
+  "updatedAt": "2026-10-30T12:00:00.000Z",
+  "settings": {
+    "defaultDialect": "postgresql",
+    "namingConvention": "snake_case",
+    "autosaveIntervalMs": 800
+  },
+  "documents": [
+    {
+      "id": "doc-knowledge-tree",
+      "projectId": "proj-sample-knowledge",
+      "title": "Computer Science Study Tree",
+      "type": "mindtree",
+      "createdAt": "2026-10-30T12:00:00.000Z",
+      "updatedAt": "2026-10-30T12:00:00.000Z",
+      "tags": ["study", "notes"],
+      "content": {
+        "rootNodeId": "node-cs-root",
+        "layoutMode": "both",
+        "nodes": [
+          {
+            "id": "node-cs-root",
+            "type": "text",
+            "position": { "x": 350, "y": 250 },
+            "data": {
+              "label": "🧠 Core CS Mastery",
+              "shape": "hexagon",
+              "fill": "#4f46e5",
+              "textColor": "#ffffff",
+              "fontSize": 18
+            }
+          },
+          {
+            "id": "node-algo",
+            "type": "checklist",
+            "position": { "x": 100, "y": 150 },
+            "data": {
+              "label": "Algorithms & Data Structures",
+              "parentId": "node-cs-root",
+              "items": [
+                { "id": "i1", "text": "Graph Traversals (BFS/DFS)", "done": true },
+                { "id": "i2", "text": "Dynamic Programming", "done": true },
+                { "id": "i3", "text": "Tries & Suffix Trees", "done": false }
+              ]
+            }
+          },
+          {
+            "id": "node-code",
+            "type": "code",
+            "position": { "x": 600, "y": 150 },
+            "data": {
+              "label": "Binary Search",
+              "parentId": "node-cs-root",
+              "language": "typescript",
+              "code": "function binarySearch(arr: number[], target: number): number {\n  let l = 0, r = arr.length - 1;\n  while (l <= r) {\n    const m = (l + r) >> 1;\n    if (arr[m] === target) return m;\n    if (arr[m] < target) l = m + 1;\n    else r = m - 1;\n  }\n  return -1;\n}"
+            }
+          },
+          {
+            "id": "node-sys",
+            "type": "note",
+            "position": { "x": 350, "y": 420 },
+            "data": {
+              "label": "Distributed Systems Rules",
+              "parentId": "node-cs-root",
+              "text": "Remember CAP theorem tradeoffs:\n- Partition tolerance is mandatory in network systems.\n- Choose between strong consistency or high availability.",
+              "color": "#fef08a"
+            }
+          }
+        ],
+        "edges": [
+          { "id": "e-algo", "source": "node-cs-root", "target": "node-algo" },
+          { "id": "e-code", "source": "node-cs-root", "target": "node-code" },
+          { "id": "e-sys", "source": "node-cs-root", "target": "node-sys" }
+        ],
+        "viewport": { "x": 0, "y": 0, "zoom": 1 }
+      }
+    }
+  ]
+}

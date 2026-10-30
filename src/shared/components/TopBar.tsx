@@ -19,6 +19,8 @@ import { SaveStatusIndicator } from './SaveStatusIndicator';
 import { LanguageSelector } from './LanguageSelector';
 import { ThemeSelector } from './ThemeSelector';
 import { useProjectStore } from '@/features/projects/projectStore';
+import { useMindTreeStore } from '@/features/mindtree/mindTreeStore';
+import { useDBDesignerStore } from '@/features/dbdesigner/dbDesignerStore';
 
 interface TopBarProps {
   onToggleSidebar?: () => void;
@@ -51,6 +53,26 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
       updateDocumentTitle(activeDoc.id, editedTitle.trim());
     }
     setIsEditingTitle(false);
+  };
+
+  const handleUndo = () => {
+    if (activeDoc?.type === 'mindtree') {
+      useMindTreeStore.getState().undo();
+    } else {
+      useDBDesignerStore.getState().undo();
+    }
+  };
+
+  const handleRedo = () => {
+    if (activeDoc?.type === 'mindtree') {
+      useMindTreeStore.getState().redo();
+    } else {
+      useDBDesignerStore.getState().redo();
+    }
+  };
+
+  const handleZoom = (type: 'in' | 'out' | 'fit') => {
+    window.dispatchEvent(new CustomEvent(`mindgraph-zoom-${type}`));
   };
 
   if (!activeProject || !activeDoc) {
@@ -125,6 +147,7 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
         <Button
           variant="ghost"
           size="iconSm"
+          onClick={handleUndo}
           title={t('common.undo')}
           className="h-7 w-7 text-muted-foreground hover:text-foreground"
         >
@@ -133,6 +156,7 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
         <Button
           variant="ghost"
           size="iconSm"
+          onClick={handleRedo}
           title={t('common.redo')}
           className="h-7 w-7 text-muted-foreground hover:text-foreground"
         >
@@ -142,6 +166,7 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
         <Button
           variant="ghost"
           size="iconSm"
+          onClick={() => handleZoom('out')}
           title={t('common.zoomOut')}
           className="h-7 w-7 text-muted-foreground hover:text-foreground"
         >
@@ -150,6 +175,7 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
         <Button
           variant="ghost"
           size="iconSm"
+          onClick={() => handleZoom('in')}
           title={t('common.zoomIn')}
           className="h-7 w-7 text-muted-foreground hover:text-foreground"
         >
@@ -158,6 +184,7 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
         <Button
           variant="ghost"
           size="iconSm"
+          onClick={() => handleZoom('fit')}
           title={t('common.fitView')}
           className="h-7 w-7 text-muted-foreground hover:text-foreground"
         >

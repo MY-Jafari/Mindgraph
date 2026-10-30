@@ -11,6 +11,8 @@ import {
   ShieldCheck,
   ShoppingCart,
   BookOpen,
+  Milestone,
+  Building2,
 } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import { useProjectStore } from './projectStore';
@@ -23,6 +25,8 @@ import {
   createTemplateBlogDB,
   createTemplateEcommerceDB,
   createTemplateAuthDB,
+  createTemplateProjectRoadmap,
+  createTemplateSaaSDB,
 } from './templates';
 import { db } from '@/shared/db';
 
@@ -217,6 +221,50 @@ export function WelcomeScreen() {
                 </h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   {t('templates.authDBDesc')}
+                </p>
+              </div>
+              <div className="pt-4 flex items-center justify-between text-xs text-primary font-medium">
+                <span>{t('nav.dbschema')}</span>
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform rtl:group-hover:-translate-x-1" />
+              </div>
+            </div>
+
+            {/* Product Roadmap */}
+            <div
+              onClick={() => handleLoadTemplate(createTemplateProjectRoadmap)}
+              className="group p-5 rounded-2xl border border-border/80 bg-card/60 hover:bg-card hover:border-primary/50 transition-all cursor-pointer shadow-xs hover:shadow-md flex flex-col justify-between"
+            >
+              <div className="space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Milestone className="w-5 h-5" />
+                </div>
+                <h3 className="font-semibold text-foreground text-sm group-hover:text-primary transition-colors">
+                  {t('templates.roadmap', 'Product Roadmap')}
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {t('templates.roadmapDesc', 'Quarterly milestones, deliverables, and goals')}
+                </p>
+              </div>
+              <div className="pt-4 flex items-center justify-between text-xs text-primary font-medium">
+                <span>{t('nav.mindtree')}</span>
+                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform rtl:group-hover:-translate-x-1" />
+              </div>
+            </div>
+
+            {/* SaaS Multi-Tenant */}
+            <div
+              onClick={() => handleLoadTemplate(createTemplateSaaSDB)}
+              className="group p-5 rounded-2xl border border-border/80 bg-card/60 hover:bg-card hover:border-primary/50 transition-all cursor-pointer shadow-xs hover:shadow-md flex flex-col justify-between"
+            >
+              <div className="space-y-2">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <h3 className="font-semibold text-foreground text-sm group-hover:text-primary transition-colors">
+                  {t('templates.saasDB', 'SaaS Multi-Tenant')}
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  {t('templates.saasDBDesc', 'Organizations, subscriptions, and membership schema')}
                 </p>
               </div>
               <div className="pt-4 flex items-center justify-between text-xs text-primary font-medium">
