@@ -6,11 +6,33 @@ export interface AppSettingRecord {
   value: unknown;
 }
 
+export interface FileBlobRecord {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  data: Blob;
+  createdAt: string;
+}
+
+export interface LinkPreviewRecord {
+  url: string;
+  title: string;
+  description?: string;
+  image?: string;
+  favicon?: string;
+  domain: string;
+  provider?: string;
+  updatedAt: string;
+}
+
 export class MindgraphDB extends Dexie {
   projects!: Table<Project, string>;
   documents!: Table<Document, string>;
   recentProjects!: Table<RecentProjectMeta, string>;
   settings!: Table<AppSettingRecord, string>;
+  fileBlobs!: Table<FileBlobRecord, string>;
+  linkPreviews!: Table<LinkPreviewRecord, string>;
 
   constructor() {
     super('MindgraphDB');
@@ -19,6 +41,11 @@ export class MindgraphDB extends Dexie {
       documents: 'id, projectId, type, updatedAt, *tags',
       recentProjects: 'id, name, updatedAt',
       settings: 'key',
+    });
+
+    this.version(2).stores({
+      fileBlobs: 'id, name, mimeType, createdAt',
+      linkPreviews: 'url, domain, updatedAt',
     });
   }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   ReactFlow,
   Background,
@@ -15,16 +15,35 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { MindTextNode } from './components/MindTextNode';
+import { MindLinkNode } from './components/MindLinkNode';
+import { MindImageNode } from './components/MindImageNode';
+import { MindFileNode } from './components/MindFileNode';
+import { MindStickyNode } from './components/MindStickyNode';
+import { MindChecklistNode } from './components/MindChecklistNode';
+import { MindCodeNode } from './components/MindCodeNode';
+import { MindGroupNode } from './components/MindGroupNode';
+
 import { MindTreeEdge } from './components/MindTreeEdge';
 import { CrossLinkEdge } from './components/CrossLinkEdge';
 import { MindTreeToolbar } from './components/MindTreeToolbar';
 import { MindTreeInspector } from './components/MindTreeInspector';
+import { MindNotesPanel } from './components/MindNotesPanel';
+import { MindSearchBar } from './components/MindSearchBar';
+import { PresentationMode } from './components/PresentationMode';
+
 import { useMindTreeStore } from './mindTreeStore';
-import { getHiddenNodeAndEdgeIds } from './layout';
+import { getHiddenNodeAndEdgeIds, buildHierarchy, getDescendantIds } from './layout';
 import type { Document, MindTreeNode, MindTreeEdge as IMindTreeEdge } from '../projects/types';
 
 const nodeTypes = {
   text: MindTextNode,
+  link: MindLinkNode,
+  image: MindImageNode,
+  file: MindFileNode,
+  note: MindStickyNode,
+  checklist: MindChecklistNode,
+  code: MindCodeNode,
+  group: MindGroupNode,
 };
 
 const edgeTypes = {
@@ -60,7 +79,12 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
     addCrossLink,
     reparentNode,
     updateNodePosition,
+    isFocusMode,
   } = useMindTreeStore();
+
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isPresentationOpen, setIsPresentationOpen] = useState(false);
+  const [isNotesPanelOpen, setIsNotesPanelOpen] = useState(false);
 
   // Load document on mount or document switch
   useEffect(() => {
@@ -74,23 +98,51 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
     return getHiddenNodeAndEdgeIds(nodes, edges);
   }, [nodes, edges]);
 
+  // Focus mode branch calculation: active node and all its descendants
+  const focusedBranchIds = useMemo(() => {
+    if (!isFocusMode || selectedNodeIds.length === 0) return null;
+    const activeId = selectedNodeIds[0];
+    const childrenMap = buildHierarchy(nodes, edges, null);
+    return new Set([activeId, ...getDescendantIds(activeId, childrenMap)]);
+  }, [isFocusMode, selectedNodeIds, nodes, edges]);
+
   const visibleNodes = useMemo(() => {
     return nodes
       .filter((n) => !hiddenNodeIds.has(n.id))
-      .map((n) => ({
-        ...n,
-        selected: selectedNodeIds.includes(n.id),
-      }));
-  }, [nodes, hiddenNodeIds, selectedNodeIds]);
+      .map((n) => {
+        const isDimmed = focusedBranchIds !== null && !focusedBranchIds.has(n.id);
+        return {
+          ...n,
+          type: n.type || 'text',
+          selected: selectedNodeIds.includes(n.id),
+          style: {
+            ...n.style,
+            opacity: isDimmed ? 0.2 : 1,
+            filter: isDimmed ? 'grayscale(80%)' : 'none',
+            transition: 'opacity 0.2s ease, filter 0.2s ease',
+          },
+        };
+      });
+  }, [nodes, hiddenNodeIds, selectedNodeIds, focusedBranchIds]);
 
   const visibleEdges = useMemo(() => {
     return edges
       .filter((e) => !hiddenEdgeIds.has(e.id))
-      .map((e) => ({
-        ...e,
-        type: e.type || 'mindtree',
-      }));
-  }, [edges, hiddenEdgeIds]);
+      .map((e) => {
+        const isDimmed =
+          focusedBranchIds !== null &&
+          (!focusedBranchIds.has(e.source) || !focusedBranchIds.has(e.target));
+        return {
+          ...e,
+          type: e.type || 'mindtree',
+          style: {
+            ...e.style,
+            opacity: isDimmed ? 0.1 : 0.8,
+            transition: 'opacity 0.2s ease',
+          },
+        };
+      });
+  }, [edges, hiddenEdgeIds, focusedBranchIds]);
 
   // Handle node position changes
   const onNodesChange = useCallback(
@@ -126,7 +178,6 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
   // Drag reparenting check on drag stop
   const onNodeDragStop = useCallback(
     (_event: React.MouseEvent, node: MindTreeNode) => {
-      // Find if dropped near another node
       const PROXIMITY_RADIUS = 60;
       const targetParent = nodes.find(
         (n) =>
@@ -145,13 +196,19 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
   // Global Keyboard shortcuts handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is typing inside an input or textarea
       const target = e.target as HTMLElement | null;
       if (
         target?.tagName === 'INPUT' ||
         target?.tagName === 'TEXTAREA' ||
         target?.isContentEditable
       ) {
+        return;
+      }
+
+      // Ctrl+F / Cmd+F: Toggle In-Map Search
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
         return;
       }
 
@@ -321,10 +378,32 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
       </ReactFlow>
 
       {/* Mind Tree Toolbar overlay */}
-      <MindTreeToolbar />
+      <MindTreeToolbar
+        onOpenSearch={() => setIsSearchOpen(true)}
+        onOpenPresentation={() => setIsPresentationOpen(true)}
+        onOpenNotesPanel={() => setIsNotesPanelOpen(true)}
+      />
 
       {/* Inspector / Style Editor overlay */}
       <MindTreeInspector />
+
+      {/* Slide-out Notes Drawer */}
+      <MindNotesPanel
+        isOpen={isNotesPanelOpen}
+        onClose={() => setIsNotesPanelOpen(false)}
+      />
+
+      {/* In-Map Search Bar */}
+      <MindSearchBar
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+      />
+
+      {/* Presentation Mode Fullscreen Stepper */}
+      <PresentationMode
+        isOpen={isPresentationOpen}
+        onClose={() => setIsPresentationOpen(false)}
+      />
     </div>
   );
 }

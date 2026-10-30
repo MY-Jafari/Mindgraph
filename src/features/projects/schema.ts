@@ -54,6 +54,7 @@ export const MindTreeNodeSchema = z.object({
   data: MindTreeNodeDataSchema.default({ label: 'New Node' }),
   width: z.number().optional(),
   height: z.number().optional(),
+  style: z.record(z.unknown()).optional(),
 });
 
 export const MindTreeEdgeSchema = z.object({

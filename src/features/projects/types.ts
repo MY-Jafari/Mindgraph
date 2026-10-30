@@ -52,6 +52,7 @@ export interface MindTreeNode {
   data: MindTreeNodeData;
   width?: number;
   height?: number;
+  style?: Record<string, unknown>;
 }
 
 export interface MindTreeEdge {

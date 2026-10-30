@@ -12,6 +12,7 @@ import {
   buildHierarchy,
   getDescendantIds,
 } from './layout';
+import { applyPresetToTree, type StylePreset } from './services/presets';
 import { useProjectStore } from '../projects/projectStore';
 
 interface HistoryState {
@@ -31,6 +32,7 @@ export interface MindTreeState {
   isSnapToGrid: boolean;
   backgroundVariant: 'dots' | 'lines' | 'cross' | 'none';
   clipboard: { nodes: MindTreeNode[]; edges: MindTreeEdge[] } | null;
+  isFocusMode: boolean;
 
   // History stack for undo/redo
   past: HistoryState[];
@@ -47,13 +49,16 @@ export interface MindTreeState {
   setSelectedNodes: (ids: string[]) => void;
   setSelectedEdges: (ids: string[]) => void;
   setEditingNodeId: (id: string | null) => void;
+  setFocusMode: (focus: boolean) => void;
 
   // Node CRUD
   addNode: (parentId?: string | null, label?: string) => MindTreeNode;
+  addRichNode: (type: string, parentId?: string | null, customData?: Record<string, unknown>) => MindTreeNode;
   addSiblingNode: (referenceNodeId: string) => MindTreeNode | null;
   updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
   updateNodeData: (nodeId: string, dataPatch: Partial<MindTreeNodeData>) => void;
   applyStyleToBranch: (rootId: string, stylePatch: Partial<MindTreeNodeData>) => void;
+  applyPreset: (preset: StylePreset) => void;
   deleteSelected: () => void;
   deleteNode: (nodeId: string) => void;
   toggleCollapse: (nodeId: string) => void;
@@ -90,6 +95,7 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   isSnapToGrid: true,
   backgroundVariant: 'dots',
   clipboard: null,
+  isFocusMode: false,
   past: [],
   future: [],
 
@@ -191,6 +197,7 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   setSelectedNodes: (ids) => set({ selectedNodeIds: ids }),
   setSelectedEdges: (ids) => set({ selectedEdgeIds: ids }),
   setEditingNodeId: (id) => set({ editingNodeId: id }),
+  setFocusMode: (focus) => set({ isFocusMode: focus }),
 
   addNode: (parentId, label = 'New Node') => {
     get().recordHistory();
@@ -238,6 +245,57 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
       edges: newEdges,
       selectedNodeIds: [newId],
       editingNodeId: newId,
+    });
+
+    get().syncToProject();
+    return newNode;
+  },
+
+  addRichNode: (type, parentId, customData = {}) => {
+    get().recordHistory();
+    const { nodes, edges, selectedNodeIds, rootNodeId, layoutMode } = get();
+    const effectiveParentId = parentId !== undefined ? parentId : (selectedNodeIds[0] || rootNodeId);
+
+    const parentNode = nodes.find((n) => n.id === effectiveParentId);
+    const newId = `node-${type}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+    const posX = parentNode ? parentNode.position.x + 240 : 100;
+    const posY = parentNode ? parentNode.position.y + 40 : 100;
+
+    const newNode: MindTreeNode = {
+      id: newId,
+      type,
+      position: { x: posX, y: posY },
+      data: {
+        label: (customData.label as string) || `New ${type.charAt(0).toUpperCase() + type.slice(1)}`,
+        shape: 'rounded',
+        fill: '#1e293b',
+        textColor: '#f8fafc',
+        fontSize: 14,
+        parentId: effectiveParentId || null,
+        ...customData,
+      },
+    };
+
+    const newEdges = [...edges];
+    if (effectiveParentId && type !== 'group') {
+      newEdges.push({
+        id: `e-${effectiveParentId}-${newId}`,
+        source: effectiveParentId,
+        target: newId,
+        type: 'mindtree',
+      });
+    }
+
+    let updatedNodes = [...nodes, newNode];
+    if (layoutMode !== 'freeform' && type !== 'group') {
+      updatedNodes = calculateAutoLayout(updatedNodes, newEdges, layoutMode, rootNodeId);
+    }
+
+    set({
+      nodes: updatedNodes,
+      edges: newEdges,
+      selectedNodeIds: [newId],
     });
 
     get().syncToProject();
@@ -292,6 +350,15 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
         branchIds.has(n.id) ? { ...n, data: { ...n.data, ...stylePatch } } : n
       ),
     }));
+    get().syncToProject();
+  },
+
+  applyPreset: (preset) => {
+    get().recordHistory();
+    const { nodes, edges, rootNodeId } = get();
+    const { nodes: updatedNodes, edges: updatedEdges } = applyPresetToTree(preset, nodes, edges, rootNodeId);
+
+    set({ nodes: updatedNodes, edges: updatedEdges });
     get().syncToProject();
   },
 
