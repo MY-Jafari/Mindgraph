@@ -3,7 +3,7 @@ import { Sidebar } from '@/shared/components/Sidebar';
 import { TopBar } from '@/shared/components/TopBar';
 import { useProjectStore } from './projectStore';
 import { MindTreeCanvas } from '@/features/mindtree/MindTreeCanvas';
-import { DBSchemaCanvasPlaceholder } from '@/features/dbdesigner/DBSchemaCanvasPlaceholder';
+import { DBSchemaCanvas } from '@/features/dbdesigner/DBSchemaCanvas';
 
 export function WorkspaceView() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -47,7 +47,7 @@ export function WorkspaceView() {
           {activeDocument.type === 'mindtree' ? (
             <MindTreeCanvas key={activeDocument.id} document={activeDocument} />
           ) : (
-            <DBSchemaCanvasPlaceholder document={activeDocument} />
+            <DBSchemaCanvas key={activeDocument.id} document={activeDocument} />
           )}
         </main>
       </div>
