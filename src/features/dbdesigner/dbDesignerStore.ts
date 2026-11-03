@@ -10,6 +10,8 @@ import type {
   CardinalityNotation,
   Document,
   DBSchemaContent,
+  DBSchemaSnapshot,
+  Viewport,
 } from '../projects/types';
 import { getDefaultPrimaryKeyType } from './dialects';
 import { calculateERLayout } from './layout';
@@ -33,6 +35,8 @@ export interface DBDesignerState {
   selectedRelationshipId: string | null;
   notation: CardinalityNotation;
   isSnapToGrid: boolean;
+  viewport: Viewport;
+  snapshots: DBSchemaSnapshot[];
 
   past: HistorySnapshot[];
   future: HistorySnapshot[];
@@ -49,6 +53,11 @@ export interface DBDesignerState {
   setNotation: (notation: CardinalityNotation) => void;
   setDialect: (dialect: SQLDialect) => void;
   setSnapToGrid: (snap: boolean) => void;
+  setViewport: (viewport: Viewport) => void;
+
+  // Persistent schema snapshots (stored inside the document)
+  saveSnapshot: (name: string) => DBSchemaSnapshot;
+  deleteSnapshot: (id: string) => void;
 
   // Tables
   addTable: (name?: string, pos?: { x: number; y: number }) => DBTable;
@@ -102,19 +111,37 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   selectedRelationshipId: null,
   notation: 'crows-foot',
   isSnapToGrid: true,
+  viewport: { x: 0, y: 0, zoom: 1 },
+  snapshots: [],
   past: [],
   future: [],
 
   initDocument: (doc) => {
     if (doc.type !== 'dbschema') return;
     const content = doc.content as DBSchemaContent;
+    const tables = content.tables || [];
+    const relationships = content.relationships || [];
+    const snapshots =
+      content.snapshots && content.snapshots.length > 0
+        ? content.snapshots
+        : [
+            {
+              id: `snap-baseline-${doc.id}`,
+              name: 'Baseline',
+              timestamp: new Date().toISOString(),
+              tables: JSON.parse(JSON.stringify(tables)),
+              relationships: JSON.parse(JSON.stringify(relationships)),
+            },
+          ];
     set({
       documentId: doc.id,
-      tables: content.tables || [],
-      relationships: content.relationships || [],
+      tables,
+      relationships,
       areas: content.areas || [],
       notes: content.notes || [],
       dialect: content.dialect || 'postgresql',
+      viewport: content.viewport || { x: 0, y: 0, zoom: 1 },
+      snapshots,
       selectedTableId: null,
       selectedRelationshipId: null,
       past: [],
@@ -122,8 +149,13 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
     });
   },
 
+  setViewport: (viewport: Viewport) => {
+    set({ viewport });
+    get().syncToProject();
+  },
+
   syncToProject: () => {
-    const { documentId, tables, relationships, areas, notes, dialect } = get();
+    const { documentId, tables, relationships, areas, notes, dialect, viewport, snapshots } = get();
     if (!documentId) return;
 
     const content: DBSchemaContent = {
@@ -132,7 +164,8 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
       areas,
       notes,
       dialect,
-      viewport: { x: 0, y: 0, zoom: 1 },
+      viewport: viewport || { x: 0, y: 0, zoom: 1 },
+      snapshots,
     };
 
     useProjectStore.getState().updateDocumentContent(documentId, content);
@@ -202,6 +235,27 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
     get().syncToProject();
   },
   setSnapToGrid: (snap) => set({ isSnapToGrid: snap }),
+
+  saveSnapshot: (name) => {
+    const { tables, relationships, snapshots } = get();
+    const snapshot: DBSchemaSnapshot = {
+      id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: name.trim() || `v${snapshots.length + 1} Snapshot`,
+      timestamp: new Date().toISOString(),
+      tables: JSON.parse(JSON.stringify(tables)),
+      relationships: JSON.parse(JSON.stringify(relationships)),
+    };
+    set({ snapshots: [...snapshots, snapshot] });
+    get().syncToProject();
+    return snapshot;
+  },
+
+  deleteSnapshot: (id) => {
+    set((state) => ({
+      snapshots: state.snapshots.filter((snapshot) => snapshot.id !== id),
+    }));
+    get().syncToProject();
+  },
 
   addTable: (name, pos) => {
     get().recordHistory();

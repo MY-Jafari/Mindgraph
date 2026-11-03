@@ -21,7 +21,7 @@ export const NamingConventionSchema = z.enum([
 export const ProjectSettingsSchema = z.object({
   defaultDialect: SQLDialectSchema.default('postgresql'),
   namingConvention: NamingConventionSchema.default('snake_case'),
-  autosaveIntervalMs: z.number().default(800),
+  autosaveIntervalMs: z.number().int().min(100).max(60_000).default(800),
 });
 
 export const ViewportSchema = z.object({
@@ -31,17 +31,19 @@ export const ViewportSchema = z.object({
 });
 
 export const MindTreeNodeDataSchema = z.object({
-  label: z.string().default('New Node'),
-  notes: z.string().optional(),
-  tags: z.array(z.string()).optional(),
+  label: z.string().max(5000).default('New Node'),
+  notes: z.string().max(200_000).optional(),
+  tags: z.array(z.string().max(200)).max(100).optional(),
   shape: z.enum(['rounded', 'pill', 'rectangle', 'circle', 'cloud', 'hexagon']).optional(),
-  color: z.string().optional(),
-  fill: z.string().optional(),
-  textColor: z.string().optional(),
-  fontSize: z.number().optional(),
-  icon: z.string().optional(),
+  color: z.string().max(100).optional(),
+  fill: z.string().max(100).optional(),
+  textColor: z.string().max(100).optional(),
+  fontSize: z.number().min(6).max(96).optional(),
+  icon: z.string().max(50).optional(),
   isCollapsed: z.boolean().optional(),
+  isLocked: z.boolean().optional(),
   parentId: z.string().nullable().optional(),
+  blobId: z.string().max(200).optional(),
 }).passthrough();
 
 export const MindTreeNodeSchema = z.object({
@@ -68,8 +70,8 @@ export const MindTreeEdgeSchema = z.object({
 });
 
 export const MindTreeContentSchema = z.object({
-  nodes: z.array(MindTreeNodeSchema).default([]),
-  edges: z.array(MindTreeEdgeSchema).default([]),
+  nodes: z.array(MindTreeNodeSchema).max(20_000).default([]),
+  edges: z.array(MindTreeEdgeSchema).max(50_000).default([]),
   viewport: ViewportSchema.default({ x: 0, y: 0, zoom: 1 }),
   rootNodeId: z.string().nullable().default(null),
   layoutMode: z.enum(['freeform', 'right', 'left', 'both', 'topdown', 'radial']).default('freeform'),
@@ -97,19 +99,34 @@ export const DBIndexSchema = z.object({
   type: z.enum(['btree', 'hash', 'gin', 'gist', 'fulltext']).optional(),
 });
 
+export const DBUniqueConstraintSchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  columns: z.array(z.string()).min(1),
+});
+
+export const DBCheckConstraintSchema = z.object({
+  id: z.string(),
+  name: z.string().optional(),
+  expression: z.string().min(1),
+});
+
 export const DBTableSchema = z.object({
   id: z.string(),
-  name: z.string(),
+  name: z.string().min(1).max(200),
   comment: z.string().optional(),
   color: z.string().optional(),
   position: z.object({
     x: z.number(),
     y: z.number(),
   }),
-  columns: z.array(DBColumnSchema).default([]),
-  indexes: z.array(DBIndexSchema).optional(),
+  columns: z.array(DBColumnSchema).max(1000).default([]),
+  indexes: z.array(DBIndexSchema).max(200).optional(),
   tags: z.array(z.string()).optional(),
   schema: z.string().optional(),
+  primaryKey: z.array(z.string()).optional(),
+  uniqueConstraints: z.array(DBUniqueConstraintSchema).max(200).optional(),
+  checkConstraints: z.array(DBCheckConstraintSchema).max(200).optional(),
 });
 
 export const DBRelationshipSchema = z.object({
@@ -148,24 +165,61 @@ export const DBNoteSchema = z.object({
   height: z.number().optional(),
 });
 
-export const DBSchemaContentSchema = z.object({
-  tables: z.array(DBTableSchema).default([]),
-  relationships: z.array(DBRelationshipSchema).default([]),
-  areas: z.array(DBAreaSchema).default([]),
-  notes: z.array(DBNoteSchema).default([]),
-  dialect: SQLDialectSchema.default('postgresql'),
-  viewport: ViewportSchema.default({ x: 0, y: 0, zoom: 1 }),
+export const DBSchemaSnapshotSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1).max(200),
+  timestamp: z.string(),
+  tables: z.array(DBTableSchema).max(500),
+  relationships: z.array(DBRelationshipSchema).max(2000),
 });
 
-export const DocumentSchema = z.object({
-  id: z.string(),
-  projectId: z.string(),
-  title: z.string().min(1),
-  type: z.enum(['mindtree', 'dbschema']),
+export const DBSchemaContentSchema = z.object({
+  tables: z.array(DBTableSchema).max(500).default([]),
+  relationships: z.array(DBRelationshipSchema).max(2000).default([]),
+  areas: z.array(DBAreaSchema).max(500).default([]),
+  notes: z.array(DBNoteSchema).max(500).default([]),
+  dialect: SQLDialectSchema.default('postgresql'),
+  viewport: ViewportSchema.default({ x: 0, y: 0, zoom: 1 }),
+  snapshots: z.array(DBSchemaSnapshotSchema).max(100).optional(),
+});
+
+const DocumentBaseSchema = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  title: z.string().min(1).max(500),
   createdAt: z.string(),
   updatedAt: z.string(),
-  tags: z.array(z.string()).default([]),
-  content: z.union([MindTreeContentSchema, DBSchemaContentSchema]),
+  tags: z.array(z.string().max(100)).max(100).default([]),
+});
+
+const MindTreeDocumentSchema = DocumentBaseSchema.extend({
+  type: z.literal('mindtree'),
+  content: MindTreeContentSchema,
+});
+
+const DBSchemaDocumentSchema = DocumentBaseSchema.extend({
+  type: z.literal('dbschema'),
+  content: DBSchemaContentSchema,
+});
+
+/**
+ * The document type is the discriminator. Using a plain union here is unsafe:
+ * MindTreeContentSchema has defaults for nodes/edges, so it also matches DB
+ * documents and silently drops their `tables` field.
+ */
+export const DocumentSchema = z.discriminatedUnion('type', [
+  MindTreeDocumentSchema,
+  DBSchemaDocumentSchema,
+]);
+
+export const EmbeddedBlobSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().max(500),
+  mimeType: z.string().max(200),
+  size: z.number().nonnegative(),
+  // ~100 MB base64 ceiling (roughly 75 MB binary) to avoid unbounded memory use.
+  base64: z.string().max(140_000_000),
+  createdAt: z.string().optional(),
 });
 
 export const ProjectSchema = z.object({
@@ -180,7 +234,28 @@ export const ProjectSchema = z.object({
     namingConvention: 'snake_case',
     autosaveIntervalMs: 800,
   }),
-  documents: z.array(DocumentSchema).default([]),
+  documents: z.array(DocumentSchema).max(200).default([]),
+  blobs: z.record(z.string(), EmbeddedBlobSchema).optional(),
+}).superRefine((project, ctx) => {
+  const documentIds = new Set<string>();
+  for (const [index, doc] of project.documents.entries()) {
+    if (documentIds.has(doc.id)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['documents', index, 'id'],
+        message: `Duplicate document id: ${doc.id}`,
+      });
+    }
+    documentIds.add(doc.id);
+
+    if (doc.projectId !== project.id) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['documents', index, 'projectId'],
+        message: `Document ${doc.id} belongs to project ${doc.projectId}, not ${project.id}`,
+      });
+    }
+  }
 });
 
 /**
@@ -221,6 +296,16 @@ export function migrateProject(rawData: unknown): Project {
     };
   }
 
+  // Repair projectId drift from older exporters instead of rejecting otherwise
+  // healthy user data. Project membership is authoritative from the project id.
+  if (typeof migrated.id === 'string' && Array.isArray(migrated.documents)) {
+    const projectId = migrated.id;
+    migrated.documents = migrated.documents.map((doc) => {
+      if (!doc || typeof doc !== 'object') return doc;
+      return { ...(doc as Record<string, unknown>), projectId };
+    });
+  }
+
   // Parse and validate strictly against the Zod schema
   const parsed = ProjectSchema.safeParse(migrated);
   if (!parsed.success) {
@@ -230,7 +315,146 @@ export function migrateProject(rawData: unknown): Project {
     throw new Error(`Project validation failed: ${errorDetails}`);
   }
 
+  const integrityIssues = validateProjectIntegrity(parsed.data as Project);
+  if (integrityIssues.length > 0) {
+    throw new Error(`Project integrity check failed: ${integrityIssues.join('; ')}`);
+  }
+
   return parsed.data as Project;
+}
+
+/**
+ * Validates graph and relational invariants that Zod cannot express easily.
+ * Returning a list (instead of throwing) keeps this reusable by import/restore UIs.
+ */
+export function validateProjectIntegrity(project: Project): string[] {
+  const issues: string[] = [];
+  const documentIds = new Set<string>();
+
+  for (const doc of project.documents) {
+    if (documentIds.has(doc.id)) {
+      issues.push(`duplicate document id "${doc.id}"`);
+      continue;
+    }
+    documentIds.add(doc.id);
+
+    if (doc.type === 'mindtree') {
+      const content = doc.content as MindTreeContent;
+      const nodeIds = new Set<string>();
+      const edgeIds = new Set<string>();
+      const parentByNode = new Map<string, string>();
+
+      for (const node of content.nodes) {
+        if (nodeIds.has(node.id)) {
+          issues.push(`document "${doc.title}" has duplicate node id "${node.id}"`);
+        }
+        nodeIds.add(node.id);
+      }
+
+      for (const edge of content.edges) {
+        if (edgeIds.has(edge.id)) {
+          issues.push(`document "${doc.title}" has duplicate edge id "${edge.id}"`);
+        }
+        edgeIds.add(edge.id);
+
+        if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
+          issues.push(
+            `document "${doc.title}" edge "${edge.id}" references a missing node`
+          );
+          continue;
+        }
+        if (edge.type === 'crosslink') continue;
+        if (edge.source === edge.target) {
+          issues.push(`document "${doc.title}" has a self-referencing hierarchy edge "${edge.id}"`);
+          continue;
+        }
+        // Multiple hierarchy edges are tolerated for compatibility with files
+        // created by the old copy/paste bug. buildHierarchy deterministically
+        // picks the first parent; cycles are still rejected below.
+        if (!parentByNode.has(edge.target)) {
+          parentByNode.set(edge.target, edge.source);
+        }
+      }
+
+      for (const node of content.nodes) {
+        const parentId = node.data?.parentId;
+        if (typeof parentId === 'string' && parentId) {
+          if (!nodeIds.has(parentId)) {
+            issues.push(
+              `document "${doc.title}" node "${node.id}" has a missing parent "${parentId}"`
+            );
+          } else if (!parentByNode.has(node.id)) {
+            parentByNode.set(node.id, parentId);
+          }
+        }
+      }
+
+      for (const node of content.nodes) {
+        const seen = new Set<string>();
+        let current: string | undefined = node.id;
+        while (current) {
+          if (seen.has(current)) {
+            issues.push(`document "${doc.title}" has a parent cycle involving "${node.id}"`);
+            break;
+          }
+          seen.add(current);
+          current = parentByNode.get(current);
+        }
+      }
+
+      if (content.rootNodeId && !nodeIds.has(content.rootNodeId)) {
+        issues.push(`document "${doc.title}" rootNodeId points to a missing node`);
+      }
+    } else {
+      const content = doc.content as DBSchemaContent;
+      const tableIds = new Set<string>();
+      const columnIdsByTable = new Map<string, Set<string>>();
+
+      for (const table of content.tables) {
+        if (tableIds.has(table.id)) {
+          issues.push(`document "${doc.title}" has duplicate table id "${table.id}"`);
+        }
+        tableIds.add(table.id);
+        const columnIds = new Set<string>();
+        for (const column of table.columns) {
+          if (columnIds.has(column.id)) {
+            issues.push(`table "${table.name}" has duplicate column id "${column.id}"`);
+          }
+          columnIds.add(column.id);
+        }
+        columnIdsByTable.set(table.id, columnIds);
+
+        const columnNames = new Set(table.columns.map((c) => c.name));
+        for (const pkColumn of table.primaryKey || []) {
+          if (!columnNames.has(pkColumn)) {
+            issues.push(`table "${table.name}" primary key references missing column "${pkColumn}"`);
+          }
+        }
+        for (const idx of table.indexes || []) {
+          for (const col of idx.columns) {
+            if (!columnNames.has(col)) {
+              issues.push(`index "${idx.name}" references missing column "${col}"`);
+            }
+          }
+        }
+      }
+
+      for (const rel of content.relationships) {
+        if (!tableIds.has(rel.sourceTableId) || !tableIds.has(rel.targetTableId)) {
+          issues.push(`relationship "${rel.id}" references a missing table`);
+          continue;
+        }
+        if (!columnIdsByTable.get(rel.sourceTableId)?.has(rel.sourceColumnId)) {
+          issues.push(`relationship "${rel.id}" source column does not belong to its table`);
+        }
+        if (!columnIdsByTable.get(rel.targetTableId)?.has(rel.targetColumnId)) {
+          issues.push(`relationship "${rel.id}" target column does not belong to its table`);
+        }
+      }
+    }
+  }
+
+  return issues;
 }
 
 /**
@@ -271,6 +495,7 @@ export function createEmptyDBSchemaContent(dialect: SQLDialect = 'postgresql'): 
     notes: [],
     dialect,
     viewport: { x: 0, y: 0, zoom: 1 },
+    snapshots: [],
   };
 }
 

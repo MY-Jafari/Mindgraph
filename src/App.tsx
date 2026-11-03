@@ -1,12 +1,27 @@
 import { useEffect } from 'react';
 import { useThemeStore } from '@/shared/stores/themeStore';
-import { useProjectStore } from '@/features/projects/projectStore';
+import { useProjectStore, setupAutosaveLifecycleListeners } from '@/features/projects/projectStore';
 import { WelcomeScreen } from '@/features/projects/WelcomeScreen';
 import { WorkspaceView } from '@/features/projects/WorkspaceView';
+import { ProjectConflictDialog } from '@/features/projects/components/ProjectConflictDialog';
+import { SettingsDialog } from '@/shared/components/SettingsDialog';
+import { ErrorBoundary } from '@/shared/components/ErrorBoundary';
+import { useSettingsStore } from '@/shared/stores/settingsStore';
 
 export function App() {
   const { applyTheme, theme } = useThemeStore();
   const { activeProject, initialize, isLoading } = useProjectStore();
+  const { loadSettings } = useSettingsStore();
+
+  // Load app settings
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+
+  // Attach lifecycle listeners (visibilitychange, pagehide) for autosave flush
+  useEffect(() => {
+    return setupAutosaveLifecycleListeners();
+  }, []);
 
   // Apply theme on initial load and listen to system preference changes
   useEffect(() => {
@@ -36,7 +51,15 @@ export function App() {
     );
   }
 
-  return activeProject ? <WorkspaceView /> : <WelcomeScreen />;
+  return (
+    <>
+      <ErrorBoundary>
+        {activeProject ? <WorkspaceView /> : <WelcomeScreen />}
+      </ErrorBoundary>
+      <ProjectConflictDialog />
+      <SettingsDialog />
+    </>
+  );
 }
 
 export default App;

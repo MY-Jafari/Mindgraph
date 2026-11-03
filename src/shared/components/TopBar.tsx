@@ -13,11 +13,13 @@ import {
   Database,
   Edit2,
   Check,
+  Settings,
 } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import { SaveStatusIndicator } from './SaveStatusIndicator';
 import { LanguageSelector } from './LanguageSelector';
 import { ThemeSelector } from './ThemeSelector';
+import { useSettingsStore } from '@/shared/stores/settingsStore';
 import { useProjectStore } from '@/features/projects/projectStore';
 import { useMindTreeStore } from '@/features/mindtree/mindTreeStore';
 import { useDBDesignerStore } from '@/features/dbdesigner/dbDesignerStore';
@@ -38,6 +40,7 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
   } = useProjectStore();
 
   const activeDoc = activeProject?.documents.find((d) => d.id === activeDocumentId);
+  const openSettings = useSettingsStore((s) => s.openSettings);
 
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
@@ -221,6 +224,16 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
 
         <LanguageSelector />
         <ThemeSelector />
+
+        <Button
+          variant="ghost"
+          size="iconSm"
+          onClick={openSettings}
+          title={t('settings.title', 'Settings')}
+          className="text-muted-foreground hover:text-foreground h-8 w-8"
+        >
+          <Settings className="h-4 w-4" />
+        </Button>
       </div>
     </header>
   );

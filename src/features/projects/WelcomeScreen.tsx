@@ -13,9 +13,11 @@ import {
   BookOpen,
   Milestone,
   Building2,
+  Settings,
 } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import { useProjectStore } from './projectStore';
+import { useSettingsStore } from '@/shared/stores/settingsStore';
 import { NewProjectModal } from './NewProjectModal';
 import { LanguageSelector } from '@/shared/components/LanguageSelector';
 import { ThemeSelector } from '@/shared/components/ThemeSelector';
@@ -38,6 +40,7 @@ export function WelcomeScreen() {
     recentProjects,
     deleteRecentProject,
   } = useProjectStore();
+  const openSettings = useSettingsStore((s) => s.openSettings);
 
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
 
@@ -74,6 +77,15 @@ export function WelcomeScreen() {
         <div className="flex items-center gap-2">
           <LanguageSelector />
           <ThemeSelector />
+          <Button
+            variant="ghost"
+            size="iconSm"
+            onClick={openSettings}
+            title={t('settings.title', 'Settings')}
+            className="text-muted-foreground hover:text-foreground h-8 w-8"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
         </div>
       </header>
 
@@ -310,7 +322,12 @@ export function WelcomeScreen() {
                     size="iconSm"
                     onClick={(e) => {
                       e.stopPropagation();
-                      deleteRecentProject(item.id);
+                      const confirmed = window.confirm(
+                        `Delete "${item.name}" permanently?\n\nThis removes the local project and its attachments and cannot be undone.`
+                      );
+                      if (confirmed) {
+                        void deleteRecentProject(item.id);
+                      }
                     }}
                     className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-rose-500"
                     title={t('common.delete')}

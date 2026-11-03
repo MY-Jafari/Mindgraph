@@ -133,9 +133,13 @@ export function DBImportDialog({ isOpen, onClose }: DBImportDialogProps) {
             </div>
 
             {parseResult.warnings.length > 0 && (
-              <div className="text-[11px] text-amber-500 flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span>{parseResult.warnings[0]}</span>
+              <div className="text-[11px] text-amber-500 flex items-start gap-1 max-h-20 overflow-y-auto">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  {parseResult.warnings.map((warning, index) => (
+                    <div key={`${warning}-${index}`}>{warning}</div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

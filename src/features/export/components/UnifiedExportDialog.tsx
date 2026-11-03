@@ -170,11 +170,15 @@ export function UnifiedExportDialog({ isOpen, onClose }: UnifiedExportDialogProp
     }
   };
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     const { content } = getTextData();
-    navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.warn('Clipboard write failed:', err);
+    }
   };
 
   const handleDownloadText = () => {
@@ -250,13 +254,15 @@ export function UnifiedExportDialog({ isOpen, onClose }: UnifiedExportDialogProp
     }
   };
 
+  const openConflictDialog = useProjectStore((s) => s.openConflictDialog);
+
   const handleRestoreFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     try {
       setIsExporting(true);
-      const res = await restoreFullZipBackup(file);
+      const res = await restoreFullZipBackup(file, openConflictDialog);
       setRestoreMessage(
         `Restored successfully: ${res.projectsCount} projects, ${res.documentsCount} documents, ${res.blobsCount} files.`
       );

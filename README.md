@@ -6,14 +6,14 @@
 
 ## 🌟 Highlights & Tech Stack
 
-- **Framework**: Vite + React 18 + TypeScript (strict mode with zero `any`)
+- **Framework**: Vite + React 18 + TypeScript (strict mode)
 - **Canvas Engine**: `@xyflow/react` (React Flow v12) for both Mind Tree and Database Schema canvases
-- **State Management**: Zustand (`immer` + `zundo` temporal undo/redo history)
+- **State Management**: Zustand with custom, coalesced undo/redo history (no `immer`/`zundo` dependency)
 - **Persistence & Storage**:
   - **Dexie (IndexedDB)** for instant local persistence and autosave (~800ms debounce)
   - **File System Access API** with `.mindgraph.json` project files (native file picker with automatic download/upload fallback)
   - **Offline Blobs**: File and image attachments stored locally in IndexedDB
-- **Styling**: Tailwind CSS + shadcn/ui-inspired primitives + Radix UI + Framer Motion + CSS Logical Properties for bi-directional layout
+- **Styling**: Tailwind CSS + shadcn/ui-inspired primitives + Radix UI + CSS Logical Properties for bi-directional layout
 - **Themes**: Light, Dark, System + 6 user-selectable accent colors (`indigo`, `violet`, `blue`, `emerald`, `amber`, `rose`)
 - **i18n & Bi-directional (RTL/LTR)**: English (`en`) and Persian (`fa`), dynamic direction flipping without page reloads, font pairing with **Vazirmatn** and **Inter**
 - **PWA**: `vite-plugin-pwa` for offline-first capabilities and home-screen installability
@@ -27,7 +27,8 @@
   - `sql-formatter` with dialect quoting and formatting
   - Multi-dialect support: PostgreSQL, MySQL, MariaDB, SQLite, SQL Server, Oracle
   - Schema Linter diagnostics, Diff snapshots & forward migration SQL generator, Mock seed data generator, Quick-Add DSL parser
-- **Testing**: Vitest suite with 45 unit tests covering schemas, migration, canvas logic, DDL engines, and export serializers
+- **Security & Integrity**: strict discriminated document schema, HTML sanitization for imported rich text, escaped standalone HTML export, production CSP, ZIP restore validation/limits
+- **Testing**: Vitest suite with 126 tests covering schemas, migration, graph integrity, canvas logic, DDL engines, importers, diffing, exports, and security regressions
 
 ---
 

@@ -79,6 +79,7 @@ export function MindTreeInspector() {
           variant="ghost"
           size="iconSm"
           onClick={() => setSelectedNodes([])}
+          aria-label="Close inspector"
           className="h-6 w-6 text-muted-foreground hover:text-foreground"
         >
           <X className="w-3.5 h-3.5" />

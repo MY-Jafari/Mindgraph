@@ -1,11 +1,14 @@
 import type { Project } from './types';
 import { migrateProject } from './schema';
+import { embedReferencedBlobs, restoreProjectBlobs } from './projectBlobs';
+import { verifyFileHandlePermission } from './fileHandles';
 
 export interface SaveFileResult {
   success: boolean;
   fileName?: string;
   fileHandle?: FileSystemFileHandle | null;
   error?: string;
+  warning?: string;
 }
 
 export interface OpenFileResult {
@@ -19,21 +22,37 @@ export interface OpenFileResult {
 /**
  * Saves a project to a .mindgraph.json file using File System Access API when available,
  * or falls back to traditional browser download.
+ * Embeds all referenced blobs so the project file is completely self-contained.
  */
 export async function saveProjectToFile(
   project: Project,
   existingHandle?: FileSystemFileHandle | null
 ): Promise<SaveFileResult> {
-  const jsonContent = JSON.stringify(project, null, 2);
-  const defaultFileName = `${(project.name || 'project').toLowerCase().replace(/[^a-z0-9_-]/g, '_')}.mindgraph.json`;
-
   try {
+    const { project: projectWithBlobs, warning } = await embedReferencedBlobs(project);
+    if (warning) {
+      console.warn(warning);
+    }
+    const jsonContent = JSON.stringify(projectWithBlobs, null, 2);
+    const defaultFileName = `${(project.name || 'project').toLowerCase().replace(/[^a-z0-9_-]/g, '_')}.mindgraph.json`;
+
     // 1. Try existing file handle first if provided
-    if (existingHandle && 'createWritable' in existingHandle) {
-      const writable = await existingHandle.createWritable();
-      await writable.write(jsonContent);
-      await writable.close();
-      return { success: true, fileName: existingHandle.name, fileHandle: existingHandle };
+    if (existingHandle) {
+      const hasPermission = await verifyFileHandlePermission(existingHandle, true);
+      if (hasPermission && 'createWritable' in existingHandle) {
+        try {
+          const writable = await existingHandle.createWritable();
+          await writable.write(jsonContent);
+          await writable.close();
+          return { success: true, fileName: existingHandle.name, fileHandle: existingHandle, warning };
+        } catch (writeErr: unknown) {
+          const msg = writeErr instanceof Error ? writeErr.message : 'Failed to write to file handle';
+          console.error('File write error on existing handle:', writeErr);
+          return { success: false, error: msg };
+        }
+      } else {
+        return { success: false, error: 'Write permission was denied for the project file.' };
+      }
     }
 
     // 2. Try window.showSaveFilePicker if available
@@ -59,11 +78,17 @@ export async function saveProjectToFile(
           ],
         });
 
-        const writable = await handle.createWritable();
-        await writable.write(jsonContent);
-        await writable.close();
+        try {
+          const writable = await handle.createWritable();
+          await writable.write(jsonContent);
+          await writable.close();
 
-        return { success: true, fileName: handle.name, fileHandle: handle };
+          return { success: true, fileName: handle.name, fileHandle: handle, warning };
+        } catch (writeErr: unknown) {
+          const msg = writeErr instanceof Error ? writeErr.message : 'Failed to write to chosen file';
+          console.error('File write error on picked handle:', writeErr);
+          return { success: false, error: msg };
+        }
       } catch (pickerErr: unknown) {
         // User aborted the file picker
         if (pickerErr instanceof Error && pickerErr.name === 'AbortError') {
@@ -85,7 +110,7 @@ export async function saveProjectToFile(
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 
-    return { success: true, fileName: defaultFileName, fileHandle: null };
+    return { success: true, fileName: defaultFileName, fileHandle: null, warning };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Failed to save project file';
     return { success: false, error: message };
@@ -126,16 +151,27 @@ export async function openProjectFromFile(): Promise<OpenFileResult> {
         }
 
         const file = await handle.getFile();
-        const text = await file.text();
-        const json = JSON.parse(text);
-        const project = migrateProject(json);
+        if (file.size > 512 * 1024 * 1024) {
+          return { success: false, error: 'Project file exceeds the 512MB safety limit.' };
+        }
+        try {
+          const text = await file.text();
+          const json = JSON.parse(text);
+          const project = migrateProject(json);
+          await restoreProjectBlobs(project);
 
-        return {
-          success: true,
-          project,
-          fileName: handle.name,
-          fileHandle: handle,
-        };
+          return {
+            success: true,
+            project,
+            fileName: handle.name,
+            fileHandle: handle,
+          };
+        } catch (parseErr) {
+          // A validation/JSON error is not a reason to reopen the file picker.
+          const message =
+            parseErr instanceof Error ? parseErr.message : 'Invalid project file format';
+          return { success: false, error: message };
+        }
       } catch (pickerErr: unknown) {
         if (pickerErr instanceof Error && pickerErr.name === 'AbortError') {
           return { success: false, error: 'Open was cancelled.' };
@@ -158,9 +194,14 @@ export async function openProjectFromFile(): Promise<OpenFileResult> {
         }
 
         try {
+          if (file.size > 512 * 1024 * 1024) {
+            resolve({ success: false, error: 'Project file exceeds the 512MB safety limit.' });
+            return;
+          }
           const text = await file.text();
           const json = JSON.parse(text);
           const project = migrateProject(json);
+          await restoreProjectBlobs(project);
           resolve({
             success: true,
             project,

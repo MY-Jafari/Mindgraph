@@ -86,10 +86,14 @@ export function DBExportDialog({ isOpen, onClose }: DBExportDialogProps) {
 
   const { code, fileName } = getExportContent();
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.warn('Clipboard write failed:', err);
+    }
   };
 
   const handleDownload = () => {

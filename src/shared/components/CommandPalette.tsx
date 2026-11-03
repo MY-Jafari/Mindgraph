@@ -17,9 +17,11 @@ import {
   Plus,
   Save,
   ArrowRight,
+  Settings,
 } from 'lucide-react';
 import { useProjectStore } from '@/features/projects/projectStore';
 import { useThemeStore } from '@/shared/stores/themeStore';
+import { useSettingsStore } from '@/shared/stores/settingsStore';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -59,6 +61,7 @@ export function CommandPalette({
   } = useProjectStore();
 
   const { setTheme } = useThemeStore();
+  const openSettings = useSettingsStore((s) => s.openSettings);
 
   // Reset search when opened
   useEffect(() => {
@@ -149,6 +152,18 @@ export function CommandPalette({
       onSelect: () => {
         onClose();
         onOpenExportDialog();
+      },
+    });
+
+    // Settings
+    list.push({
+      id: 'open-settings',
+      title: t('settings.title', 'Application Settings (Link Preview, Dialect, Conventions)'),
+      category: t('command.general', 'Settings & Preferences'),
+      icon: <Settings className="w-4 h-4 text-emerald-400" />,
+      onSelect: () => {
+        onClose();
+        openSettings();
       },
     });
 

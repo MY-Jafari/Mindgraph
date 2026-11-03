@@ -1,4 +1,5 @@
 import type { Document } from '@/features/projects/types';
+import { escapeHtml, serializeForInlineScript } from '@/shared/utils/sanitizeHtml';
 
 /**
  * Generates a self-contained, standalone single-file HTML viewer.
@@ -7,14 +8,18 @@ import type { Document } from '@/features/projects/types';
 export function exportToSelfContainedHTML(doc: Document): string {
   const isTree = doc.type === 'mindtree';
   const docTitle = doc.title || 'Mindgraph Export';
-  const serializedData = JSON.stringify(doc.content, null, 2);
+  const safeTitle = escapeHtml(docTitle);
+  // Never interpolate raw JSON into a <script> element: a `</script>` inside
+  // any node label would terminate the script and allow code execution.
+  const serializedData = serializeForInlineScript(doc.content);
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${docTitle} - Mindgraph Standalone Viewer</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+  <title>${safeTitle} - Mindgraph Standalone Viewer</title>
   <style>
     :root {
       --bg: #090d16;
@@ -123,7 +128,7 @@ export function exportToSelfContainedHTML(doc: Document): string {
 <body>
   <header>
     <div class="brand">
-      <span>${docTitle}</span>
+      <span>${safeTitle}</span>
       <span class="badge">${isTree ? 'Mind Tree' : 'DB Designer'}</span>
     </div>
     <div class="controls">

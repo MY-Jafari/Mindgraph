@@ -7,10 +7,11 @@ import {
   type Connection,
   type NodeChange,
   type EdgeChange,
-  applyNodeChanges,
-  applyEdgeChanges,
+  type Node as FlowNode,
+  type Edge as FlowEdge,
   BackgroundVariant,
   ReactFlowProvider,
+  SelectionMode,
   useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -33,8 +34,9 @@ import { MindSearchBar } from './components/MindSearchBar';
 import { PresentationMode } from './components/PresentationMode';
 
 import { useMindTreeStore } from './mindTreeStore';
+import { MindTreeHierarchyProvider } from './hierarchyContext';
 import { getHiddenNodeAndEdgeIds, buildHierarchy, getDescendantIds } from './layout';
-import type { Document, MindTreeNode, MindTreeEdge as IMindTreeEdge } from '../projects/types';
+import type { Document, MindTreeNode, MindTreeEdge as IMindTreeEdge, MindTreeContent } from '../projects/types';
 
 const nodeTypes = {
   text: MindTextNode,
@@ -61,15 +63,20 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
     documentId,
     nodes,
     edges,
+    viewport,
+    setViewport,
     initDocument,
     isSnapToGrid,
     backgroundVariant,
     selectedNodeIds,
+    selectedEdgeIds,
     setSelectedNodes,
+    setSelectedEdges,
     setEditingNodeId,
     addNode,
     addSiblingNode,
     deleteSelected,
+    deleteEdge,
     toggleCollapse,
     undo,
     redo,
@@ -87,7 +94,7 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
   const [isPresentationOpen, setIsPresentationOpen] = useState(false);
   const [isNotesPanelOpen, setIsNotesPanelOpen] = useState(false);
 
-  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const { zoomIn, zoomOut, fitView, getIntersectingNodes } = useReactFlow();
 
   useEffect(() => {
     const onIn = () => zoomIn();
@@ -134,6 +141,8 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
           ...n,
           type: n.type || 'text',
           selected: selectedNodeIds.includes(n.id),
+          draggable: !n.data?.isLocked,
+          connectable: !n.data?.isLocked,
           style: {
             ...n.style,
             opacity: isDimmed ? 0.2 : 1,
@@ -154,6 +163,7 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
         return {
           ...e,
           type: e.type || 'mindtree',
+          selected: selectedEdgeIds.includes(e.id),
           style: {
             ...e.style,
             opacity: isDimmed ? 0.1 : 0.8,
@@ -161,27 +171,38 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
           },
         };
       });
-  }, [edges, hiddenEdgeIds, focusedBranchIds]);
+  }, [edges, hiddenEdgeIds, focusedBranchIds, selectedEdgeIds]);
 
-  // Handle node position changes
+  // Handle node position changes. Selection is controlled through
+  // onSelectionChange so Shift/Ctrl click and box select stay in sync with
+  // the store; position updates are applied by the store itself.
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      applyNodeChanges(changes, visibleNodes as unknown as Parameters<typeof applyNodeChanges>[1]);
       for (const change of changes) {
         if (change.type === 'position' && change.position && change.id) {
           updateNodePosition(change.id, change.position);
         }
       }
     },
-    [visibleNodes, updateNodePosition]
+    [updateNodePosition]
   );
 
-  // Handle edge changes
+  // Handle edge removal changes (edge selection is handled below).
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      applyEdgeChanges(changes, visibleEdges as unknown as Parameters<typeof applyEdgeChanges>[1]);
+      for (const change of changes) {
+        if (change.type === 'remove') deleteEdge(change.id);
+      }
     },
-    [visibleEdges]
+    [deleteEdge]
+  );
+
+  const onSelectionChange = useCallback(
+    ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: FlowNode[]; edges: FlowEdge[] }) => {
+      setSelectedNodes(selectedNodes.map((node) => node.id));
+      setSelectedEdges(selectedEdges.map((edge) => edge.id));
+    },
+    [setSelectedNodes, setSelectedEdges]
   );
 
   // Handle connecting handles (creates cross-link or hierarchy edge)
@@ -194,22 +215,22 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
     [addCrossLink]
   );
 
-  // Drag reparenting check on drag stop
+  // Reparent only when the dragged node actually intersects another node's
+  // bounds. The old 60px proximity check silently reparented nearby siblings.
   const onNodeDragStop = useCallback(
     (_event: React.MouseEvent, node: MindTreeNode) => {
-      const PROXIMITY_RADIUS = 60;
-      const targetParent = nodes.find(
-        (n) =>
-          n.id !== node.id &&
-          Math.abs(n.position.x - node.position.x) < PROXIMITY_RADIUS &&
-          Math.abs(n.position.y - node.position.y) < PROXIMITY_RADIUS
+      if (node.data?.isLocked) return;
+      const intersections = getIntersectingNodes(
+        node as unknown as FlowNode
+      ) as unknown as MindTreeNode[];
+      const targetParent = intersections.find(
+        (candidate) => candidate.id !== node.id && !candidate.data?.isLocked
       );
-
       if (targetParent) {
         reparentNode(node.id, targetParent.id);
       }
     },
-    [nodes, reparentNode]
+    [getIntersectingNodes, reparentNode]
   );
 
   // Global Keyboard shortcuts handler
@@ -221,6 +242,13 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
         target?.tagName === 'TEXTAREA' ||
         target?.isContentEditable
       ) {
+        return;
+      }
+
+      // Overlays (presentation, search, notes, dialogs) own the keyboard while
+      // open. Without this guard, Space/Arrow/Delete also mutate the graph.
+      if (isPresentationOpen || isSearchOpen || isNotesPanelOpen) return;
+      if (typeof globalThis.document !== 'undefined' && globalThis.document.querySelector('[role="dialog"][data-state="open"]')) {
         return;
       }
 
@@ -332,6 +360,9 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     selectedNodeIds,
+    isPresentationOpen,
+    isSearchOpen,
+    isNotesPanelOpen,
     addNode,
     addSiblingNode,
     deleteSelected,
@@ -352,28 +383,42 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
     none: undefined,
   };
 
+  const content = document.content as MindTreeContent | undefined;
+  const hasCustomViewport = Boolean(
+    content?.viewport &&
+      (content.viewport.x !== 0 || content.viewport.y !== 0 || content.viewport.zoom !== 1)
+  );
+
   return (
     <div className="flex-1 h-full w-full relative overflow-hidden select-none bg-background">
-      <ReactFlow
-        nodes={visibleNodes as unknown as Parameters<typeof ReactFlow>[0]['nodes']}
-        edges={visibleEdges as unknown as Parameters<typeof ReactFlow>[0]['edges']}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        onNodeDragStop={onNodeDragStop as unknown as Parameters<typeof ReactFlow>[0]['onNodeDragStop']}
-        onNodeClick={(_e, node) => setSelectedNodes([node.id])}
-        onPaneClick={() => setSelectedNodes([])}
-        snapToGrid={isSnapToGrid}
-        snapGrid={[16, 16]}
-        fitView
-        fitViewOptions={{ padding: 0.35 }}
-        minZoom={0.15}
-        maxZoom={2.5}
-        selectionOnDrag
-        panOnScroll
-      >
+      <MindTreeHierarchyProvider nodes={nodes} edges={edges}>
+        <ReactFlow
+          nodes={visibleNodes as unknown as Parameters<typeof ReactFlow>[0]['nodes']}
+          edges={visibleEdges as unknown as Parameters<typeof ReactFlow>[0]['edges']}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onSelectionChange={onSelectionChange}
+          onConnect={onConnect}
+          onNodeDragStop={onNodeDragStop as unknown as Parameters<typeof ReactFlow>[0]['onNodeDragStop']}
+          onPaneClick={() => {
+            setSelectedNodes([]);
+            setSelectedEdges([]);
+          }}
+          snapToGrid={isSnapToGrid}
+          snapGrid={[16, 16]}
+          defaultViewport={content?.viewport || viewport}
+          onMoveEnd={(_event, vp) => setViewport(vp)}
+          fitView={!hasCustomViewport}
+          fitViewOptions={{ padding: 0.35 }}
+          minZoom={0.15}
+          maxZoom={2.5}
+          selectionOnDrag
+          selectionMode={SelectionMode.Partial}
+          multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
+          panOnScroll
+        >
         {backgroundVariant !== 'none' && (
           <Background
             variant={bgVariantMap[backgroundVariant]}
@@ -393,8 +438,9 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
           }}
           className="!bg-card/80 !border-border !rounded-xl !shadow-md overflow-hidden !bottom-4 !start-4 !m-0"
           maskColor="rgba(0, 0, 0, 0.4)"
-        />
-      </ReactFlow>
+          />
+        </ReactFlow>
+      </MindTreeHierarchyProvider>
 
       {/* Mind Tree Toolbar overlay */}
       <MindTreeToolbar

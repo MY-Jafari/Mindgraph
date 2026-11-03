@@ -6,7 +6,6 @@ import {
   MiniMap,
   type Connection,
   type NodeChange,
-  applyNodeChanges,
   BackgroundVariant,
   ReactFlowProvider,
   useReactFlow,
@@ -25,7 +24,7 @@ import { SchemaDiffModal } from './components/SchemaDiffModal';
 import { QuickAddCommandBar } from './components/QuickAddCommandBar';
 
 import { useDBDesignerStore } from './dbDesignerStore';
-import type { Document, DBTable, DBRelationship } from '../projects/types';
+import type { Document, DBTable, DBRelationship, DBSchemaContent } from '../projects/types';
 
 const nodeTypes = {
   table: TableNode,
@@ -48,15 +47,20 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
     relationships,
     areas,
     notes,
+    viewport,
+    setViewport,
     initDocument,
     isSnapToGrid,
     selectedTableId,
+    selectedRelationshipId,
     setSelectedTable,
+    setSelectedRelationship,
     updateTablePosition,
     updateArea,
     updateNote,
     addRelationship,
     deleteTable,
+    deleteRelationship,
     duplicateTable,
     undo,
     redo,
@@ -140,6 +144,7 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
         sourceHandle,
         targetHandle,
         type: 'relationship',
+        selected: rel.id === selectedRelationshipId,
         data: {
           cardinality: rel.cardinality,
           onDelete: rel.onDelete,
@@ -148,12 +153,11 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
         },
       };
     });
-  }, [relationships, tables]);
+  }, [relationships, tables, selectedRelationshipId]);
 
   // Handle position changes for tables, areas, and notes
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      applyNodeChanges(changes, flowNodes as unknown as Parameters<typeof applyNodeChanges>[1]);
       const tableIds = new Set(tables.map((t) => t.id));
       const areaIds = new Set(areas.map((a) => a.id));
       const noteIds = new Set(notes.map((n) => n.id));
@@ -170,7 +174,7 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
         }
       }
     },
-    [flowNodes, tables, areas, notes, updateTablePosition, updateArea, updateNote]
+    [tables, areas, notes, updateTablePosition, updateArea, updateNote]
   );
 
   // Handle column handle drag-to-connect to create FK relationship
@@ -244,8 +248,16 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
         return;
       }
 
+      // Dialogs own the keyboard while open.
+      if (typeof globalThis.document !== 'undefined' && globalThis.document.querySelector('[role="dialog"][data-state="open"]')) {
+        return;
+      }
+
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedTableId) {
+        if (selectedRelationshipId) {
+          e.preventDefault();
+          deleteRelationship(selectedRelationshipId);
+        } else if (selectedTableId) {
           e.preventDefault();
           deleteTable(selectedTableId);
         }
@@ -275,7 +287,21 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedTableId, deleteTable, duplicateTable, undo, redo]);
+  }, [
+    selectedTableId,
+    selectedRelationshipId,
+    deleteTable,
+    deleteRelationship,
+    duplicateTable,
+    undo,
+    redo,
+  ]);
+
+  const content = document.content as DBSchemaContent | undefined;
+  const hasCustomViewport = Boolean(
+    content?.viewport &&
+      (content.viewport.x !== 0 || content.viewport.y !== 0 || content.viewport.zoom !== 1)
+  );
 
   return (
     <div className="flex-1 h-full w-full relative overflow-hidden select-none bg-background">
@@ -287,12 +313,22 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
         onNodesChange={onNodesChange}
         onConnect={onConnect}
         onNodeClick={(_e, node) => {
+          setSelectedRelationship(null);
           if (node.id.startsWith('tbl-')) setSelectedTable(node.id);
         }}
-        onPaneClick={() => setSelectedTable(null)}
+        onEdgeClick={(_event, edge) => {
+          setSelectedTable(null);
+          setSelectedRelationship(edge.id);
+        }}
+        onPaneClick={() => {
+          setSelectedTable(null);
+          setSelectedRelationship(null);
+        }}
         snapToGrid={isSnapToGrid}
         snapGrid={[16, 16]}
-        fitView
+        defaultViewport={content?.viewport || viewport}
+        onMoveEnd={(_event, vp) => setViewport(vp)}
+        fitView={!hasCustomViewport}
         fitViewOptions={{ padding: 0.25 }}
         minZoom={0.15}
         maxZoom={2.5}

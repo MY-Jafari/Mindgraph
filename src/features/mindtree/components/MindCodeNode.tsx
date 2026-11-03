@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Copy, Check, Code2 } from 'lucide-react';
 import { useMindTreeStore } from '../mindTreeStore';
 import type { MindTreeNodeData } from '../../projects/types';
 import { cn } from '@/shared/utils/cn';
-
-const LANGUAGES = ['typescript', 'javascript', 'python', 'sql', 'html', 'css', 'json', 'rust', 'go'];
+import { highlightCode, SUPPORTED_LANGUAGES } from '../services/codeHighlight';
 
 export const MindCodeNode = React.memo(({ id, data, selected }: NodeProps) => {
   const nodeData = data as MindTreeNodeData & {
@@ -13,19 +12,39 @@ export const MindCodeNode = React.memo(({ id, data, selected }: NodeProps) => {
     language?: string;
   };
 
-  const { updateNodeData } = useMindTreeStore();
+  const updateNodeData = useMindTreeStore((state) => state.updateNodeData);
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [codeContent, setCodeContent] = useState(
     nodeData.code || `// Sample snippet\nfunction calculate(val: number): number {\n  return val * 2;\n}`
   );
+  const [highlightedHtml, setHighlightedHtml] = useState<string>('');
 
   const language = nodeData.language || 'typescript';
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(codeContent);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  useEffect(() => {
+    let cancelled = false;
+    highlightCode(codeContent, language)
+      .then((html) => {
+        if (!cancelled) setHighlightedHtml(html);
+      })
+      .catch(() => {
+        if (!cancelled) setHighlightedHtml('');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [codeContent, language]);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(codeContent);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.warn('Clipboard write failed:', err);
+    }
   };
 
   const commitCode = () => {
@@ -62,7 +81,7 @@ export const MindCodeNode = React.memo(({ id, data, selected }: NodeProps) => {
             onChange={(e) => updateNodeData(id, { language: e.target.value })}
             className="bg-transparent text-[10px] text-slate-300 font-sans outline-none uppercase font-semibold cursor-pointer"
           >
-            {LANGUAGES.map((lang) => (
+            {SUPPORTED_LANGUAGES.map((lang) => (
               <option key={lang} value={lang} className="bg-slate-900 text-slate-100">
                 {lang}
               </option>
@@ -103,6 +122,11 @@ export const MindCodeNode = React.memo(({ id, data, selected }: NodeProps) => {
             autoFocus
             rows={Math.min(10, Math.max(3, lines.length))}
             className="w-full bg-transparent outline-none resize-none font-mono text-xs text-slate-100 leading-relaxed"
+          />
+        ) : highlightedHtml ? (
+          <div
+            className="text-xs [&>pre]:!bg-transparent [&>pre]:!p-0 [&>pre]:!m-0 [&>pre]:!font-mono leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
           />
         ) : (
           <pre className="text-xs leading-relaxed flex">

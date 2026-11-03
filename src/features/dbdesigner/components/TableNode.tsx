@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import {
   Key,
@@ -11,6 +11,8 @@ import {
   ShieldAlert,
   Edit2,
   Check,
+  Settings2,
+  X,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -23,6 +25,7 @@ import { useDBDesignerStore } from '../dbDesignerStore';
 import { getTypesForDialect } from '../dialects';
 import type { DBTable, DBColumn } from '../../projects/types';
 import { cn } from '@/shared/utils/cn';
+import { TableIndexesDialog } from './TableIndexesDialog';
 
 const TABLE_COLORS = [
   '#6366f1', // Indigo
@@ -34,6 +37,130 @@ const TABLE_COLORS = [
   '#06b6d4', // Cyan
   '#64748b', // Slate
 ];
+
+function ColumnSettings({
+  tableId,
+  column,
+  onClose,
+}: {
+  tableId: string;
+  column: DBColumn;
+  onClose: () => void;
+}) {
+  const updateColumn = useDBDesignerStore((state) => state.updateColumn);
+  const [defaultValue, setDefaultValue] = useState(column.defaultValue || '');
+  const [comment, setComment] = useState(column.comment || '');
+  const [checkConstraint, setCheckConstraint] = useState(column.checkConstraint || '');
+
+  useEffect(() => {
+    setDefaultValue(column.defaultValue || '');
+    setComment(column.comment || '');
+    setCheckConstraint(column.checkConstraint || '');
+  }, [column.id, column.defaultValue, column.comment, column.checkConstraint]);
+
+  const commitText = () => {
+    updateColumn(tableId, column.id, {
+      defaultValue: defaultValue.trim() || undefined,
+      comment: comment.trim() || undefined,
+      checkConstraint: checkConstraint.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="mx-2 mb-1.5 rounded-lg border border-primary/30 bg-primary/5 p-2 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold text-primary">Column: {column.name}</span>
+        <button onClick={onClose} className="p-0.5 text-muted-foreground hover:text-foreground">
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-1 text-[10px]">
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={Boolean(column.isPrimaryKey)}
+            onChange={(event) =>
+              updateColumn(tableId, column.id, {
+                isPrimaryKey: event.target.checked,
+                isNullable: event.target.checked ? false : column.isNullable,
+              })
+            }
+          />
+          Primary key
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={Boolean(column.isUnique)}
+            onChange={(event) =>
+              updateColumn(tableId, column.id, { isUnique: event.target.checked })
+            }
+          />
+          Unique
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={column.isNullable !== false}
+            onChange={(event) =>
+              updateColumn(tableId, column.id, { isNullable: event.target.checked })
+            }
+          />
+          Nullable
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="checkbox"
+            checked={Boolean(column.isAutoIncrement)}
+            onChange={(event) =>
+              updateColumn(tableId, column.id, { isAutoIncrement: event.target.checked })
+            }
+          />
+          Auto increment
+        </label>
+        <label className="flex items-center gap-1 opacity-70" title="Managed by relationship handles">
+          <input type="checkbox" checked={Boolean(column.isForeignKey)} readOnly />
+          Foreign key
+        </label>
+      </div>
+
+      <input
+        value={defaultValue}
+        onChange={(event) => setDefaultValue(event.target.value)}
+        onBlur={commitText}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commitText();
+          event.stopPropagation();
+        }}
+        placeholder="DEFAULT expression (e.g. now())"
+        className="h-6 w-full rounded border border-input bg-background px-1.5 text-[10px] font-mono outline-none focus:border-primary"
+      />
+      <input
+        value={checkConstraint}
+        onChange={(event) => setCheckConstraint(event.target.value)}
+        onBlur={commitText}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commitText();
+          event.stopPropagation();
+        }}
+        placeholder="CHECK expression (e.g. age >= 0)"
+        className="h-6 w-full rounded border border-input bg-background px-1.5 text-[10px] font-mono outline-none focus:border-primary"
+      />
+      <input
+        value={comment}
+        onChange={(event) => setComment(event.target.value)}
+        onBlur={commitText}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') commitText();
+          event.stopPropagation();
+        }}
+        placeholder="Column comment"
+        className="h-6 w-full rounded border border-input bg-background px-1.5 text-[10px] outline-none focus:border-primary"
+      />
+    </div>
+  );
+}
 
 export const TableNode = React.memo(({ id, data, selected }: NodeProps) => {
   const table = data as unknown as DBTable;
@@ -53,6 +180,8 @@ export const TableNode = React.memo(({ id, data, selected }: NodeProps) => {
   const [tableName, setTableName] = useState(table.name || 'table_name');
   const [editingColId, setEditingColId] = useState<string | null>(null);
   const [editingColName, setEditingColName] = useState('');
+  const [settingsColId, setSettingsColId] = useState<string | null>(null);
+  const [isIndexesOpen, setIsIndexesOpen] = useState(false);
 
   const availableTypes = getTypesForDialect(dialect);
   const tableColor = table.color || '#6366f1';
@@ -150,6 +279,10 @@ export const TableNode = React.memo(({ id, data, selected }: NodeProps) => {
               <Copy className="w-3.5 h-3.5" />
               <span>Duplicate Table</span>
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setIsIndexesOpen(true)} className="gap-2 text-xs">
+              <Key className="w-3.5 h-3.5 text-amber-500" />
+              <span>Keys & Indexes</span>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => deleteTable(id)} className="gap-2 text-xs text-rose-500">
               <Trash2 className="w-3.5 h-3.5" />
@@ -165,10 +298,8 @@ export const TableNode = React.memo(({ id, data, selected }: NodeProps) => {
           const isColEditing = editingColId === col.id;
 
           return (
-            <div
-              key={col.id}
-              className="relative px-3.5 py-1.5 flex items-center justify-between text-xs hover:bg-accent/40 transition-colors group/row"
-            >
+            <div key={col.id} className="border-b border-border/30 last:border-b-0">
+              <div className="relative px-3.5 py-1.5 flex items-center justify-between text-xs hover:bg-accent/40 transition-colors group/row">
               {/* Exact Column Row Connection Handles for Foreign Keys */}
               <Handle
                 type="target"
@@ -278,6 +409,18 @@ export const TableNode = React.memo(({ id, data, selected }: NodeProps) => {
                 </select>
 
                 <button
+                  onClick={() => setSettingsColId(settingsColId === col.id ? null : col.id)}
+                  className={cn(
+                    'p-0.5 text-muted-foreground hover:text-primary transition-opacity rounded',
+                    settingsColId === col.id ? 'text-primary opacity-100' : 'opacity-0 group-hover/row:opacity-100'
+                  )}
+                  title="Column settings"
+                  aria-label={`Column settings for ${col.name}`}
+                >
+                  <Settings2 className="w-3 h-3" />
+                </button>
+
+                <button
                   onClick={() => deleteColumn(id, col.id)}
                   className="opacity-0 group-hover/row:opacity-100 p-0.5 text-muted-foreground hover:text-rose-500 transition-opacity rounded"
                   title="Delete column"
@@ -285,6 +428,14 @@ export const TableNode = React.memo(({ id, data, selected }: NodeProps) => {
                   <Trash2 className="w-3 h-3" />
                 </button>
               </div>
+              </div>
+              {settingsColId === col.id && (
+                <ColumnSettings
+                  tableId={id}
+                  column={col}
+                  onClose={() => setSettingsColId(null)}
+                />
+              )}
             </div>
           );
         })}
@@ -304,6 +455,12 @@ export const TableNode = React.memo(({ id, data, selected }: NodeProps) => {
           {table.columns.length} cols
         </span>
       </div>
+
+      <TableIndexesDialog
+        tableId={id}
+        isOpen={isIndexesOpen}
+        onClose={() => setIsIndexesOpen(false)}
+      />
     </div>
   );
 });

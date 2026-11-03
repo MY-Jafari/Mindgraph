@@ -1,15 +1,16 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useMindTreeStore } from '../mindTreeStore';
 import type { MindTreeNodeData } from '../../projects/types';
 import { cn } from '@/shared/utils/cn';
+import { sanitizeHtml } from '@/shared/utils/sanitizeHtml';
 
 export const MindStickyNode = React.memo(({ id, data, selected }: NodeProps) => {
   const nodeData = data as MindTreeNodeData & {
     noteBody?: string;
   };
 
-  const { updateNodeData } = useMindTreeStore();
+  const updateNodeData = useMindTreeStore((state) => state.updateNodeData);
   const [isEditing, setIsEditing] = useState(false);
   const [content, setContent] = useState(nodeData.noteBody || nodeData.label || 'Note content...');
 
@@ -20,6 +21,7 @@ export const MindStickyNode = React.memo(({ id, data, selected }: NodeProps) => 
 
   const stickyBg = nodeData.fill || '#fef08a'; // Default soft yellow
   const stickyText = nodeData.textColor || '#713f12';
+  const safeHtml = useMemo(() => sanitizeHtml(content), [content]);
 
   return (
     <div
@@ -56,6 +58,11 @@ export const MindStickyNode = React.memo(({ id, data, selected }: NodeProps) => 
           autoFocus
           rows={4}
           className="w-full bg-transparent text-xs outline-none resize-none font-medium text-current"
+        />
+      ) : content.includes('<') && content.includes('>') ? (
+        <div
+          className="text-xs font-medium prose prose-xs dark:prose-invert max-w-none leading-relaxed [&>p]:!m-0 [&>ul]:!my-1"
+          dangerouslySetInnerHTML={{ __html: safeHtml }}
         />
       ) : (
         <div className="text-xs font-medium whitespace-pre-wrap leading-relaxed">

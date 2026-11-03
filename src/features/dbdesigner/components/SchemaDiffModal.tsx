@@ -6,13 +6,9 @@ import {
   DialogTitle,
 } from '@/shared/components/ui/dialog';
 import { Button } from '@/shared/components/ui/button';
-import { History, Plus, Copy, Check } from 'lucide-react';
+import { History, Plus, Copy, Check, Trash2 } from 'lucide-react';
 import { useDBDesignerStore } from '../dbDesignerStore';
-import {
-  calculateSchemaDiff,
-  generateMigrationSQL,
-  type SchemaSnapshot,
-} from '../services/diff';
+import { calculateSchemaDiff, generateMigrationSQL } from '../services/diff';
 
 interface SchemaDiffModalProps {
   isOpen: boolean;
@@ -20,17 +16,7 @@ interface SchemaDiffModalProps {
 }
 
 export function SchemaDiffModal({ isOpen, onClose }: SchemaDiffModalProps) {
-  const { tables, relationships, dialect } = useDBDesignerStore();
-
-  const [snapshots, setSnapshots] = useState<SchemaSnapshot[]>([
-    {
-      id: 'snap-initial',
-      name: 'v1.0 Baseline',
-      timestamp: new Date().toISOString(),
-      tables: JSON.parse(JSON.stringify(tables)),
-      relationships: JSON.parse(JSON.stringify(relationships)),
-    },
-  ]);
+  const { snapshots, saveSnapshot, deleteSnapshot, dialect } = useDBDesignerStore();
 
   const [selectedOldIdx, setSelectedOldIdx] = useState(0);
   const [selectedNewIdx, setSelectedNewIdx] = useState(0);
@@ -38,29 +24,26 @@ export function SchemaDiffModal({ isOpen, onClose }: SchemaDiffModalProps) {
   const [copied, setCopied] = useState(false);
 
   const handleSaveSnapshot = () => {
-    const name = newSnapshotName.trim() || `v1.${snapshots.length} Snapshot`;
-    const newSnap: SchemaSnapshot = {
-      id: `snap-${Date.now()}`,
-      name,
-      timestamp: new Date().toISOString(),
-      tables: JSON.parse(JSON.stringify(tables)),
-      relationships: JSON.parse(JSON.stringify(relationships)),
-    };
-    setSnapshots([...snapshots, newSnap]);
+    const newIndex = snapshots.length;
+    saveSnapshot(newSnapshotName);
     setNewSnapshotName('');
-    setSelectedNewIdx(snapshots.length);
+    setSelectedNewIdx(newIndex);
   };
 
   const oldSnap = snapshots[selectedOldIdx] || snapshots[0];
   const newSnap = snapshots[selectedNewIdx] || snapshots[snapshots.length - 1];
 
-  const diff = calculateSchemaDiff(oldSnap, newSnap);
-  const migrationSql = generateMigrationSQL(diff, dialect);
+  const diff = oldSnap && newSnap ? calculateSchemaDiff(oldSnap, newSnap) : null;
+  const migrationSql = diff ? generateMigrationSQL(diff, dialect) : '';
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(migrationSql);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(migrationSql);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.warn('Clipboard write failed:', err);
+    }
   };
 
   return (
@@ -85,6 +68,16 @@ export function SchemaDiffModal({ isOpen, onClose }: SchemaDiffModalProps) {
           <Button size="sm" onClick={handleSaveSnapshot} className="h-8 gap-1.5 text-xs">
             <Plus className="w-3.5 h-3.5" />
             <span>Save Snapshot</span>
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!oldSnap || snapshots.length <= 1}
+            onClick={() => oldSnap && deleteSnapshot(oldSnap.id)}
+            className="h-8 text-xs"
+            title="Delete selected snapshot"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
           </Button>
         </div>
 
@@ -126,11 +119,26 @@ export function SchemaDiffModal({ isOpen, onClose }: SchemaDiffModalProps) {
         </div>
 
         {/* Diff Metrics */}
-        <div className="flex items-center gap-4 text-xs font-semibold">
-          <span className="text-emerald-500">+{diff.addedTables.length} Tables Added</span>
-          <span className="text-rose-500">-{diff.droppedTables.length} Tables Dropped</span>
-          <span className="text-amber-500">{diff.modifiedTables.length} Tables Modified</span>
+        <div className="flex flex-wrap items-center gap-4 text-xs font-semibold">
+          <span className="text-emerald-500">+{diff?.addedTables.length || 0} Tables Added</span>
+          <span className="text-rose-500">-{diff?.droppedTables.length || 0} Tables Dropped</span>
+          <span className="text-amber-500">{diff?.modifiedTables.length || 0} Tables Modified</span>
+          <span className="text-sky-500">{diff?.addedRelationships.length || 0} FKs Added</span>
+          <span className="text-slate-500">{diff?.droppedRelationships.length || 0} FKs Dropped</span>
         </div>
+
+        {diff && diff.modifiedTables.length > 0 && (
+          <div className="max-h-32 overflow-y-auto rounded-lg border border-border/60 bg-muted/20 p-2 text-[11px] space-y-1">
+            {diff.modifiedTables.flatMap((table) =>
+              table.modifiedColumns.map((column) => (
+                <div key={`${table.tableName}-${column.columnName}`} className="text-muted-foreground">
+                  <span className="font-mono text-foreground">{table.tableName}.{column.columnName}</span>
+                  <span> — {column.changes.join('; ')}</span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
 
         {/* Migration SQL Output */}
         <div className="flex-1 min-h-[200px] rounded-xl border border-border bg-slate-950 p-4 font-mono text-xs text-slate-100 flex flex-col">

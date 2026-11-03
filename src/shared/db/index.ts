@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Project, Document, RecentProjectMeta } from '@/features/projects/types';
+import type { Project, RecentProjectMeta } from '@/features/projects/types';
 
 export interface AppSettingRecord {
   key: string;
@@ -24,15 +24,22 @@ export interface LinkPreviewRecord {
   domain: string;
   provider?: string;
   updatedAt: string;
+  isFailed?: boolean;
+  expiresAt?: number;
+}
+
+export interface ProjectFileHandleRecord {
+  projectId: string;
+  handle: FileSystemFileHandle;
 }
 
 export class MindgraphDB extends Dexie {
   projects!: Table<Project, string>;
-  documents!: Table<Document, string>;
   recentProjects!: Table<RecentProjectMeta, string>;
   settings!: Table<AppSettingRecord, string>;
   fileBlobs!: Table<FileBlobRecord, string>;
   linkPreviews!: Table<LinkPreviewRecord, string>;
+  fileHandles!: Table<ProjectFileHandleRecord, string>;
 
   constructor() {
     super('MindgraphDB');
@@ -46,6 +53,14 @@ export class MindgraphDB extends Dexie {
     this.version(2).stores({
       fileBlobs: 'id, name, mimeType, createdAt',
       linkPreviews: 'url, domain, updatedAt',
+    });
+
+    this.version(3).stores({
+      fileHandles: 'projectId',
+    });
+
+    this.version(4).stores({
+      documents: null,
     });
   }
 }

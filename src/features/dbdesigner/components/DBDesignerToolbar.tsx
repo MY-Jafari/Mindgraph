@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Plus,
@@ -26,7 +26,7 @@ import {
 } from '@/shared/components/ui/dropdown-menu';
 import { useDBDesignerStore } from '../dbDesignerStore';
 import { validateSchema } from '../services/linter';
-import { createJunctionTable } from '../services/m2mHelper';
+import { ManyToManyDialog } from './ManyToManyDialog';
 import type { SQLDialect, CardinalityNotation } from '../../projects/types';
 
 interface DBDesignerToolbarProps {
@@ -60,9 +60,9 @@ export function DBDesignerToolbar({
     autoLayout,
     isSnapToGrid,
     setSnapToGrid,
-    recordHistory,
-    syncToProject,
   } = useDBDesignerStore();
+
+  const [isM2MOpen, setIsM2MOpen] = useState(false);
 
   const DIALECT_OPTIONS: SQLDialect[] = [
     'postgresql',
@@ -91,15 +91,7 @@ export function DBDesignerToolbar({
       alert('You need at least 2 tables to generate a Many-to-Many junction table.');
       return;
     }
-    const tblA = tables[0];
-    const tblB = tables[1];
-    recordHistory();
-    const { junctionTable, relationships: newRels } = createJunctionTable(tblA, tblB);
-    useDBDesignerStore.setState({
-      tables: [...tables, junctionTable],
-      relationships: [...relationships, ...newRels],
-    });
-    syncToProject();
+    setIsM2MOpen(true);
   };
 
   return (
@@ -294,6 +286,8 @@ export function DBDesignerToolbar({
         <ShieldAlert className="w-3.5 h-3.5" />
         {issues.length > 0 && <span>{issues.length}</span>}
       </Button>
+
+      <ManyToManyDialog isOpen={isM2MOpen} onClose={() => setIsM2MOpen(false)} />
     </div>
   );
 }

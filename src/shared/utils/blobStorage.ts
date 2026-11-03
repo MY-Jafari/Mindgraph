@@ -53,5 +53,18 @@ export async function deleteBlob(id: string): Promise<void> {
     URL.revokeObjectURL(objectUrlCache.get(id)!);
     objectUrlCache.delete(id);
   }
-  await db.fileBlobs.delete(id);
+  try {
+    await db.fileBlobs.delete(id);
+  } catch (err: unknown) {
+    if (
+      err &&
+      typeof err === 'object' &&
+      (String(err).includes('MissingAPIError') ||
+        String(err).includes('DatabaseClosedError') ||
+        String(err).includes('indexedDB is not defined'))
+    ) {
+      return;
+    }
+    console.warn(`Failed to delete blob from db:`, err);
+  }
 }

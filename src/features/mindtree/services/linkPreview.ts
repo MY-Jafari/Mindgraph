@@ -1,4 +1,8 @@
 import { db, type LinkPreviewRecord } from '@/shared/db';
+import { getAppSettings } from '@/shared/stores/settingsStore';
+
+export const FAILED_PREVIEW_TTL_MS = 60 * 1000; // 1 minute TTL for failed/fallback previews
+export const SUCCESS_PREVIEW_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days TTL for successful previews
 
 export interface LinkMetadata {
   url: string;
@@ -9,6 +13,7 @@ export interface LinkMetadata {
   domain: string;
   provider?: string;
   youtubeId?: string;
+  isFailed?: boolean;
 }
 
 export function extractDomain(url: string): string {
@@ -75,7 +80,10 @@ export async function fetchYouTubePreview(url: string, ytId: string): Promise<Li
 
 export async function fetchProxyPreview(url: string, proxyUrl?: string): Promise<LinkMetadata | null> {
   const domain = extractDomain(url);
-  const endpoint = proxyUrl || `https://api.microlink.io/?url=${encodeURIComponent(url)}`;
+  const base = proxyUrl || 'https://api.microlink.io/?url=';
+  const endpoint = base.includes('{url}')
+    ? base.replace('{url}', encodeURIComponent(url))
+    : `${base}${encodeURIComponent(url)}`;
 
   try {
     const res = await fetch(endpoint, { signal: AbortSignal.timeout(4000) });
@@ -98,30 +106,45 @@ export async function fetchProxyPreview(url: string, proxyUrl?: string): Promise
   return null;
 }
 
-export function generateFallbackPreview(url: string): LinkMetadata {
+export function generateFallbackPreview(url: string, allowExternalFavicon = true): LinkMetadata {
   const domain = extractDomain(url);
   return {
     url,
     title: domain,
     domain,
-    favicon: `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
+    favicon: allowExternalFavicon ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : undefined,
     provider: domain,
+    isFailed: true,
   };
 }
 
 /**
  * Main Link Preview Resolver executing the fallback chain with IndexedDB cache.
+ * Respects user privacy settings, custom proxy URL, and short TTL for failures.
  */
 export async function getLinkPreview(url: string, forceRefresh = false): Promise<LinkMetadata> {
+  const settings = getAppSettings();
+
+  // If user disabled all third-party previews for privacy, return local fallback without network requests
+  if (settings.disableThirdPartyPreviews) {
+    return generateFallbackPreview(url, false);
+  }
+
   // 1. Check IndexedDB cache first
   if (!forceRefresh) {
     try {
       const cached = await db.linkPreviews.get(url);
       if (cached) {
-        return {
-          ...cached,
-          youtubeId: extractYouTubeId(url) || undefined,
-        };
+        const isExpired = cached.isFailed
+          ? (cached.expiresAt ? Date.now() > cached.expiresAt : true)
+          : (cached.expiresAt ? Date.now() > cached.expiresAt : false);
+
+        if (!isExpired) {
+          return {
+            ...cached,
+            youtubeId: extractYouTubeId(url) || undefined,
+          };
+        }
       }
     } catch (err) {
       console.warn('Dexie link preview read error:', err);
@@ -136,17 +159,22 @@ export async function getLinkPreview(url: string, forceRefresh = false): Promise
     metadata = await fetchYouTubePreview(url, ytId);
   }
 
-  // 3. Step 2: Proxy metadata / OpenGraph
+  // 3. Step 2: Proxy metadata / OpenGraph using configured provider URL
   if (!metadata) {
-    metadata = await fetchProxyPreview(url);
+    const providerUrl = settings.linkPreviewProviderUrl || 'https://api.microlink.io/?url=';
+    metadata = await fetchProxyPreview(url, providerUrl);
   }
 
-  // 4. Step 3: Fallback metadata
+  // 4. Step 3: Fallback metadata if failed
+  let isFailed = false;
   if (!metadata) {
-    metadata = generateFallbackPreview(url);
+    metadata = generateFallbackPreview(url, true);
+    isFailed = true;
   }
 
-  // Save to IndexedDB cache
+  // Save to IndexedDB cache with short TTL if failed
+  const ttlMs = isFailed ? FAILED_PREVIEW_TTL_MS : SUCCESS_PREVIEW_TTL_MS;
+
   try {
     const record: LinkPreviewRecord = {
       url: metadata.url,
@@ -157,6 +185,8 @@ export async function getLinkPreview(url: string, forceRefresh = false): Promise
       domain: metadata.domain,
       provider: metadata.provider,
       updatedAt: new Date().toISOString(),
+      isFailed,
+      expiresAt: Date.now() + ttlMs,
     };
     await db.linkPreviews.put(record);
   } catch (err) {

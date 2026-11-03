@@ -13,7 +13,7 @@ export const MindLinkNode = React.memo(({ id, data, selected }: NodeProps) => {
     variant?: 'card' | 'compact' | 'chip';
   };
 
-  const { updateNodeData } = useMindTreeStore();
+  const updateNodeData = useMindTreeStore((state) => state.updateNodeData);
   const [isPlayingVideo, setIsPlayingVideo] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [customTitle, setCustomTitle] = useState(nodeData.label || '');

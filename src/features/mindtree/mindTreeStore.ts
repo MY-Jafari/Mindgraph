@@ -6,6 +6,7 @@ import type {
   MindTreeLayoutMode,
   Document,
   MindTreeContent,
+  Viewport,
 } from '../projects/types';
 import {
   calculateAutoLayout,
@@ -18,7 +19,11 @@ import { useProjectStore } from '../projects/projectStore';
 interface HistoryState {
   nodes: MindTreeNode[];
   edges: MindTreeEdge[];
+  layoutMode: MindTreeLayoutMode;
 }
+
+let lastHistoryKey: string | null = null;
+let lastHistoryAt = 0;
 
 export interface MindTreeState {
   documentId: string | null;
@@ -33,6 +38,7 @@ export interface MindTreeState {
   backgroundVariant: 'dots' | 'lines' | 'cross' | 'none';
   clipboard: { nodes: MindTreeNode[]; edges: MindTreeEdge[] } | null;
   isFocusMode: boolean;
+  viewport: Viewport;
 
   // History stack for undo/redo
   past: HistoryState[];
@@ -41,7 +47,7 @@ export interface MindTreeState {
   // Actions
   initDocument: (doc: Document) => void;
   syncToProject: () => void;
-  recordHistory: () => void;
+  recordHistory: (coalesceKey?: string) => void;
   undo: () => void;
   redo: () => void;
 
@@ -70,6 +76,7 @@ export interface MindTreeState {
   deleteEdge: (edgeId: string) => void;
 
   // Layout & Settings
+  setViewport: (viewport: Viewport) => void;
   setLayoutMode: (mode: MindTreeLayoutMode) => void;
   setSnapToGrid: (snap: boolean) => void;
   setBackgroundVariant: (v: 'dots' | 'lines' | 'cross' | 'none') => void;
@@ -96,6 +103,7 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   backgroundVariant: 'dots',
   clipboard: null,
   isFocusMode: false,
+  viewport: { x: 0, y: 0, zoom: 1 },
   past: [],
   future: [],
 
@@ -106,11 +114,15 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
     const edges = content.edges || [];
     const rootNodeId = content.rootNodeId || (nodes[0]?.id ?? null);
     const layoutMode = content.layoutMode || 'freeform';
+    const viewport = content.viewport || { x: 0, y: 0, zoom: 1 };
+    lastHistoryKey = null;
+    lastHistoryAt = 0;
 
     set({
       documentId: doc.id,
       nodes,
       edges,
+      viewport,
       rootNodeId,
       layoutMode,
       selectedNodeIds: rootNodeId ? [rootNodeId] : [],
@@ -121,14 +133,19 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
     });
   },
 
+  setViewport: (viewport: Viewport) => {
+    set({ viewport });
+    get().syncToProject();
+  },
+
   syncToProject: () => {
-    const { documentId, nodes, edges, rootNodeId, layoutMode } = get();
+    const { documentId, nodes, edges, rootNodeId, layoutMode, viewport } = get();
     if (!documentId) return;
 
     const updatedContent: MindTreeContent = {
       nodes,
       edges,
-      viewport: { x: 0, y: 0, zoom: 1 },
+      viewport: viewport || { x: 0, y: 0, zoom: 1 },
       rootNodeId,
       layoutMode,
     };
@@ -136,11 +153,24 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
     useProjectStore.getState().updateDocumentContent(documentId, updatedContent);
   },
 
-  recordHistory: () => {
-    const { nodes, edges, past } = get();
+  recordHistory: (coalesceKey) => {
+    const { nodes, edges, layoutMode, past } = get();
+    const now = Date.now();
+
+    // Coalesce typing/continuous edits into one undo step. Without this,
+    // TipTap's per-keystroke updates fill the 50-entry history in seconds.
+    if (coalesceKey && coalesceKey === lastHistoryKey && now - lastHistoryAt < 800) {
+      lastHistoryAt = now;
+      set({ future: [] });
+      return;
+    }
+    lastHistoryKey = coalesceKey || null;
+    lastHistoryAt = now;
+
     const clonedSnapshot: HistoryState = {
       nodes: JSON.parse(JSON.stringify(nodes)),
       edges: JSON.parse(JSON.stringify(edges)),
+      layoutMode,
     };
 
     // Limit history stack to 50 items
@@ -149,7 +179,7 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   },
 
   undo: () => {
-    const { past, future, nodes, edges } = get();
+    const { past, future, nodes, edges, layoutMode } = get();
     if (past.length === 0) return;
 
     const previous = past[past.length - 1];
@@ -157,11 +187,14 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
     const currentSnapshot: HistoryState = {
       nodes: JSON.parse(JSON.stringify(nodes)),
       edges: JSON.parse(JSON.stringify(edges)),
+      layoutMode,
     };
 
+    lastHistoryKey = null;
     set({
       nodes: previous.nodes,
       edges: previous.edges,
+      layoutMode: previous.layoutMode,
       past: newPast,
       future: [currentSnapshot, ...future],
       selectedNodeIds: [],
@@ -172,7 +205,7 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   },
 
   redo: () => {
-    const { past, future, nodes, edges } = get();
+    const { past, future, nodes, edges, layoutMode } = get();
     if (future.length === 0) return;
 
     const next = future[0];
@@ -180,11 +213,14 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
     const currentSnapshot: HistoryState = {
       nodes: JSON.parse(JSON.stringify(nodes)),
       edges: JSON.parse(JSON.stringify(edges)),
+      layoutMode,
     };
 
+    lastHistoryKey = null;
     set({
       nodes: next.nodes,
       edges: next.edges,
+      layoutMode: next.layoutMode,
       past: [...past, currentSnapshot],
       future: newFuture,
       selectedNodeIds: [],
@@ -194,8 +230,16 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
     get().syncToProject();
   },
 
-  setSelectedNodes: (ids) => set({ selectedNodeIds: ids }),
-  setSelectedEdges: (ids) => set({ selectedEdgeIds: ids }),
+  setSelectedNodes: (ids) => {
+    const current = get().selectedNodeIds;
+    if (current.length === ids.length && current.every((id, index) => id === ids[index])) return;
+    set({ selectedNodeIds: ids });
+  },
+  setSelectedEdges: (ids) => {
+    const current = get().selectedEdgeIds;
+    if (current.length === ids.length && current.every((id, index) => id === ids[index])) return;
+    set({ selectedEdgeIds: ids });
+  },
   setEditingNodeId: (id) => set({ editingNodeId: id }),
   setFocusMode: (focus) => set({ isFocusMode: focus }),
 
@@ -323,6 +367,8 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   },
 
   updateNodePosition: (nodeId, position) => {
+    const node = get().nodes.find((n) => n.id === nodeId);
+    if (node?.data?.isLocked) return;
     set((state) => ({
       nodes: state.nodes.map((n) => (n.id === nodeId ? { ...n, position } : n)),
     }));
@@ -330,7 +376,19 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   },
 
   updateNodeData: (nodeId, dataPatch) => {
-    get().recordHistory();
+    const oldNode = get().nodes.find((n) => n.id === nodeId);
+    if (!oldNode) return;
+
+    const onlyTogglesLock =
+      Object.keys(dataPatch).length === 1 && Object.prototype.hasOwnProperty.call(dataPatch, 'isLocked');
+    if (oldNode.data?.isLocked && !onlyTogglesLock) return;
+
+    get().recordHistory(
+      `data:${nodeId}:${Object.keys(dataPatch).sort().join(',')}`
+    );
+
+    // Blobs are intentionally NOT deleted here. Undo can restore the node,
+    // but it cannot restore bytes that were already removed from IndexedDB.
     set((state) => ({
       nodes: state.nodes.map((n) =>
         n.id === nodeId ? { ...n, data: { ...n.data, ...dataPatch } } : n
@@ -347,7 +405,9 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
 
     set((state) => ({
       nodes: state.nodes.map((n) =>
-        branchIds.has(n.id) ? { ...n, data: { ...n.data, ...stylePatch } } : n
+        branchIds.has(n.id) && !n.data?.isLocked
+          ? { ...n, data: { ...n.data, ...stylePatch } }
+          : n
       ),
     }));
     get().syncToProject();
@@ -366,15 +426,21 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
     get().recordHistory();
     const { nodes, edges, selectedNodeIds, selectedEdgeIds, rootNodeId } = get();
 
-    // Do not delete root node completely if it is the only node
-    const nodesToDelete = new Set(selectedNodeIds.filter((id) => id !== rootNodeId));
+    // Do not delete root node completely if it is the only node, and never
+    // delete a locked node (or its branch).
+    const lockedIds = new Set(nodes.filter((n) => n.data?.isLocked).map((n) => n.id));
+    const nodesToDelete = new Set(
+      selectedNodeIds.filter((id) => id !== rootNodeId && !lockedIds.has(id))
+    );
     if (nodesToDelete.size === 0 && selectedEdgeIds.length === 0) return;
 
     // Also collect descendants of nodes being deleted
     const childrenMap = buildHierarchy(nodes, edges, null);
     for (const id of Array.from(nodesToDelete)) {
       const descendants = getDescendantIds(id, childrenMap);
-      descendants.forEach((dId) => nodesToDelete.add(dId));
+      descendants.forEach((dId) => {
+        if (!lockedIds.has(dId)) nodesToDelete.add(dId);
+      });
     }
 
     const remainingNodes = nodes.filter((n) => !nodesToDelete.has(n.id));
@@ -419,7 +485,11 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
 
   reparentNode: (childId, newParentId) => {
     if (childId === newParentId) return;
-    get().recordHistory();
+    const current = get();
+    const childNode = current.nodes.find((n) => n.id === childId);
+    const parentNode = current.nodes.find((n) => n.id === newParentId);
+    if (!childNode || !parentNode) return;
+    if (childNode.data?.isLocked || parentNode.data?.isLocked) return;
     const { nodes, edges, rootNodeId, layoutMode } = get();
 
     // Check circular reference: newParentId cannot be a descendant of childId
@@ -428,6 +498,8 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
     if (descendants.includes(newParentId)) {
       return; // Circular reparenting prevented
     }
+
+    get().recordHistory();
 
     // Update child node parentId
     const updatedNodes = nodes.map((n) =>
@@ -527,13 +599,41 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
 
     get().recordHistory();
     const idMap = new Map<string, string>();
-    const newNodes: MindTreeNode[] = [];
+    const copiedIds = new Set(clipboard.nodes.map((n) => n.id));
 
-    const targetParentId = selectedNodeIds[0] || rootNodeId;
-
+    // A pasted subtree keeps its internal shape. Only its root(s) are attached
+    // to the target parent; assigning every pasted node to that parent destroys
+    // the hierarchy.
+    const parentOfCopied = new Map<string, string>();
+    for (const edge of clipboard.edges) {
+      if (edge.type === 'crosslink') continue;
+      if (copiedIds.has(edge.source) && copiedIds.has(edge.target)) {
+        parentOfCopied.set(edge.target, edge.source);
+      }
+    }
     for (const node of clipboard.nodes) {
-      const newId = `node-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const parentId = node.data?.parentId;
+      if (typeof parentId === 'string' && copiedIds.has(parentId)) {
+        if (!parentOfCopied.has(node.id)) parentOfCopied.set(node.id, parentId);
+      }
+    }
+
+    const roots = clipboard.nodes.filter((node) => !parentOfCopied.has(node.id));
+    let targetParentId = selectedNodeIds[0] || rootNodeId || null;
+    const targetNode = targetParentId ? nodes.find((n) => n.id === targetParentId) : null;
+    if (targetNode?.data?.isLocked) {
+      targetParentId = rootNodeId || null;
+    }
+
+    const newNodes: MindTreeNode[] = [];
+    for (const node of clipboard.nodes) {
+      const newId = `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       idMap.set(node.id, newId);
+
+      const copiedParentId = parentOfCopied.get(node.id);
+      const nextParentId = copiedParentId
+        ? idMap.get(copiedParentId) || null
+        : targetParentId;
 
       newNodes.push({
         ...node,
@@ -544,26 +644,32 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
         },
         data: {
           ...node.data,
-          parentId: targetParentId || null,
+          parentId: nextParentId,
         },
       });
     }
 
-    const newEdges: MindTreeEdge[] = clipboard.edges.map((edge) => ({
-      ...edge,
-      id: `e-${idMap.get(edge.source)}-${idMap.get(edge.target)}`,
-      source: idMap.get(edge.source) || edge.source,
-      target: idMap.get(edge.target) || edge.target,
-    }));
+    const newEdges: MindTreeEdge[] = clipboard.edges
+      .filter((edge) => idMap.has(edge.source) && idMap.has(edge.target))
+      .map((edge) => ({
+        ...edge,
+        id: `e-${idMap.get(edge.source)}-${idMap.get(edge.target)}`,
+        source: idMap.get(edge.source)!,
+        target: idMap.get(edge.target)!,
+      }));
 
-    // If pasted single branch under target parent, add link
-    if (targetParentId && newNodes[0] && !newEdges.some((e) => e.target === newNodes[0].id)) {
-      newEdges.push({
-        id: `e-${targetParentId}-${newNodes[0].id}`,
-        source: targetParentId,
-        target: newNodes[0].id,
-        type: 'mindtree',
-      });
+    if (targetParentId) {
+      for (const root of roots) {
+        const newRootId = idMap.get(root.id)!;
+        if (!newEdges.some((e) => e.target === newRootId && e.type !== 'crosslink')) {
+          newEdges.push({
+            id: `e-${targetParentId}-${newRootId}`,
+            source: targetParentId,
+            target: newRootId,
+            type: 'mindtree',
+          });
+        }
+      }
     }
 
     set({

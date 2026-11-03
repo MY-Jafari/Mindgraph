@@ -11,7 +11,7 @@ export const MindGroupNode = React.memo(({ id, data, selected }: NodeProps) => {
     groupHeight?: number;
   };
 
-  const { updateNodeData } = useMindTreeStore();
+  const updateNodeData = useMindTreeStore((state) => state.updateNodeData);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [title, setTitle] = useState(nodeData.label || 'Group');
 

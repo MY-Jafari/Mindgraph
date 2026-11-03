@@ -96,6 +96,18 @@ export interface DBIndex {
   type?: 'btree' | 'hash' | 'gin' | 'gist' | 'fulltext';
 }
 
+export interface DBUniqueConstraint {
+  id: string;
+  name?: string;
+  columns: string[];
+}
+
+export interface DBCheckConstraint {
+  id: string;
+  name?: string;
+  expression: string;
+}
+
 export interface DBTable {
   id: string;
   name: string;
@@ -106,6 +118,10 @@ export interface DBTable {
   indexes?: DBIndex[];
   tags?: string[];
   schema?: string;
+  /** Column names that form the primary key. Used for composite keys. */
+  primaryKey?: string[];
+  uniqueConstraints?: DBUniqueConstraint[];
+  checkConstraints?: DBCheckConstraint[];
 }
 
 export type Cardinality = 'one-to-one' | 'one-to-many' | 'many-to-many';
@@ -142,6 +158,14 @@ export interface DBNote {
   height?: number;
 }
 
+export interface DBSchemaSnapshot {
+  id: string;
+  name: string;
+  timestamp: string;
+  tables: DBTable[];
+  relationships: DBRelationship[];
+}
+
 export interface DBSchemaContent {
   tables: DBTable[];
   relationships: DBRelationship[];
@@ -149,6 +173,7 @@ export interface DBSchemaContent {
   notes: DBNote[];
   dialect: SQLDialect;
   viewport: Viewport;
+  snapshots?: DBSchemaSnapshot[];
 }
 
 export type DocumentContent = MindTreeContent | DBSchemaContent;
@@ -164,6 +189,15 @@ export interface Document {
   content: DocumentContent;
 }
 
+export interface EmbeddedBlob {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  base64: string;
+  createdAt?: string;
+}
+
 export interface Project {
   schemaVersion: number;
   id: string;
@@ -173,6 +207,7 @@ export interface Project {
   updatedAt: string;
   settings: ProjectSettings;
   documents: Document[];
+  blobs?: Record<string, EmbeddedBlob>;
 }
 
 export interface RecentProjectMeta {

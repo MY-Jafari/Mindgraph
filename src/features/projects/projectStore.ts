@@ -6,6 +6,7 @@ import type {
   DocumentContent,
   SQLDialect,
   RecentProjectMeta,
+  MindTreeContent,
 } from './types';
 import {
   createDefaultProject,
@@ -13,8 +14,31 @@ import {
 } from './schema';
 import { db } from '@/shared/db';
 import { saveProjectToFile, openProjectFromFile } from './fileSystem';
+import {
+  restoreProjectBlobs,
+  cleanupUnreferencedBlobs,
+  cleanupAllOrphanedBlobs,
+  embedReferencedBlobs,
+  deleteUnreferencedBlobsForProject,
+} from './projectBlobs';
+import {
+  getProjectFileHandle,
+  setProjectFileHandle,
+  deleteProjectFileHandle,
+} from './fileHandles';
+import { cloneProjectWithNewIds } from './cloneProject';
 
 export type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
+export type ConflictResolution = 'keep-local' | 'replace' | 'import-as-copy';
+
+export interface ConflictDialogState {
+  isOpen: boolean;
+  projectName: string;
+  projectId: string;
+  existingUpdatedAt?: string;
+  incomingUpdatedAt?: string;
+  resolve: ((choice: ConflictResolution) => void) | null;
+}
 
 interface ProjectState {
   activeProject: Project | null;
@@ -26,11 +50,21 @@ interface ProjectState {
   isLoading: boolean;
   errorMessage: string | null;
 
+  // Conflict Dialog
+  conflictDialog: ConflictDialogState;
+  openConflictDialog: (params: {
+    projectName: string;
+    projectId: string;
+    existingUpdatedAt?: string;
+    incomingUpdatedAt?: string;
+  }) => Promise<ConflictResolution>;
+  closeConflictDialog: (choice: ConflictResolution) => void;
+
   // Actions
   initialize: () => Promise<void>;
   loadProject: (project: Project, fileHandle?: FileSystemFileHandle | null) => Promise<void>;
   createProject: (name?: string, dialect?: SQLDialect) => Promise<Project>;
-  closeProject: () => void;
+  closeProject: () => Promise<void>;
   updateProjectMeta: (patch: Partial<Pick<Project, 'name' | 'description' | 'settings'>>) => void;
 
   // Document Actions
@@ -46,9 +80,112 @@ interface ProjectState {
   openFromDisk: () => Promise<boolean>;
   deleteRecentProject: (projectId: string) => Promise<void>;
   triggerAutosave: () => void;
+  flushAutosave: () => Promise<void>;
 }
 
-let autosaveTimeout: NodeJS.Timeout | null = null;
+export let autosaveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+let autosaveQueue: Promise<void> = Promise.resolve();
+let fileWriteQueue: Promise<void> = Promise.resolve();
+
+/** Serializes all writes to the user-selected project file. */
+function enqueueFileWrite<T>(task: () => Promise<T>): Promise<T> {
+  const run = fileWriteQueue.then(task);
+  fileWriteQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
+/**
+ * Serializes autosave operations. Without this, two overlapping flushes can
+ * finish out of order and persist an older project snapshot over a newer one.
+ */
+export function flushAutosave(): Promise<void> {
+  const run = autosaveQueue.then(() => performAutosave());
+  autosaveQueue = run.catch(() => undefined);
+  return run;
+}
+
+async function performAutosave(): Promise<void> {
+  if (autosaveTimeout) {
+    clearTimeout(autosaveTimeout);
+    autosaveTimeout = null;
+  }
+
+  const { activeProject, activeFileHandle } = useProjectStore.getState();
+  if (!activeProject) return;
+
+  try {
+    useProjectStore.setState({ saveStatus: 'saving' });
+
+    // 1. Always autosave to IndexedDB
+    await db.projects.put(activeProject);
+
+    const meta: RecentProjectMeta = {
+      id: activeProject.id,
+      name: activeProject.name,
+      description: activeProject.description,
+      updatedAt: activeProject.updatedAt,
+      documentCount: activeProject.documents.length,
+      documentTypes: Array.from(new Set(activeProject.documents.map((d) => d.type))),
+    };
+    await db.recentProjects.put(meta);
+
+    // 2. If we have a file handle with write permission, also write to file.
+    // Attachments live in IndexedDB, so the file serialization must embed them
+    // every time. Writing `activeProject` directly would silently drop blobs.
+    if (activeFileHandle && 'createWritable' in activeFileHandle) {
+      try {
+        await enqueueFileWrite(async () => {
+          const { project: projectForFile } = await embedReferencedBlobs(activeProject);
+          const writable = await activeFileHandle.createWritable();
+          await writable.write(JSON.stringify(projectForFile, null, 2));
+          await writable.close();
+        });
+      } catch (fileErr) {
+        const msg = fileErr instanceof Error ? fileErr.message : 'File write failed during autosave';
+        console.error('Autosave to file handle failed:', fileErr);
+        useProjectStore.setState({ saveStatus: 'error', errorMessage: msg });
+        return; // File-write failures must never set saveStatus to 'saved'
+      }
+    }
+
+    useProjectStore.setState({ saveStatus: 'saved', lastSavedAt: new Date(), errorMessage: null });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Autosave error';
+    console.error('Autosave flush error:', err);
+    useProjectStore.setState({ saveStatus: 'error', errorMessage: msg });
+  }
+}
+
+/**
+ * Sets up visibilitychange and pagehide listeners to flush autosave immediately.
+ */
+export function setupAutosaveLifecycleListeners(): () => void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return () => {};
+  }
+
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      void flushAutosave();
+    }
+  };
+
+  const handlePageHide = () => {
+    void flushAutosave();
+  };
+
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+  window.addEventListener('pagehide', handlePageHide);
+
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('pagehide', handlePageHide);
+  };
+}
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
   activeProject: null,
@@ -59,6 +196,44 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   recentProjects: [],
   isLoading: true,
   errorMessage: null,
+
+  // Conflict Dialog
+  conflictDialog: {
+    isOpen: false,
+    projectName: '',
+    projectId: '',
+    resolve: null,
+  },
+
+  openConflictDialog: (params) => {
+    return new Promise<ConflictResolution>((resolve) => {
+      set({
+        conflictDialog: {
+          isOpen: true,
+          projectName: params.projectName,
+          projectId: params.projectId,
+          existingUpdatedAt: params.existingUpdatedAt,
+          incomingUpdatedAt: params.incomingUpdatedAt,
+          resolve,
+        },
+      });
+    });
+  },
+
+  closeConflictDialog: (choice) => {
+    const { conflictDialog } = get();
+    if (conflictDialog.resolve) {
+      conflictDialog.resolve(choice);
+    }
+    set({
+      conflictDialog: {
+        isOpen: false,
+        projectName: '',
+        projectId: '',
+        resolve: null,
+      },
+    });
+  },
 
   initialize: async () => {
     try {
@@ -73,18 +248,36 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   loadProject: async (project, fileHandle = null) => {
     try {
+      const current = get().activeProject;
+      if (current && current.id !== project.id) {
+        await flushAutosave();
+      }
+
+      // Restore handle from IndexedDB if not explicitly passed, or persist if provided
+      let effectiveHandle = fileHandle;
+      if (!effectiveHandle) {
+        effectiveHandle = await getProjectFileHandle(project.id);
+      } else {
+        await setProjectFileHandle(project.id, effectiveHandle);
+      }
+
       const firstDoc = project.documents[0];
+      // Blobs are stored in their own IndexedDB table. Keeping the base64
+      // copies in activeProject would duplicate memory/storage and make every
+      // autosave unnecessarily large.
+      const projectForState: Project = { ...project, blobs: undefined };
       set({
-        activeProject: project,
+        activeProject: projectForState,
         activeDocumentId: firstDoc ? firstDoc.id : null,
-        activeFileHandle: fileHandle,
+        activeFileHandle: effectiveHandle,
         saveStatus: 'saved',
         lastSavedAt: new Date(),
         errorMessage: null,
       });
 
       // Save to Dexie
-      await db.projects.put(project);
+      await db.projects.put(projectForState);
+      await restoreProjectBlobs(project);
 
       // Update recent projects
       const meta: RecentProjectMeta = {
@@ -111,7 +304,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     return project;
   },
 
-  closeProject: () => {
+  closeProject: async () => {
+    await flushAutosave();
+    // History/undo is discarded on close, so attachments no longer referenced
+    // by any project can be reclaimed without breaking undo.
+    await cleanupAllOrphanedBlobs();
     set({
       activeProject: null,
       activeDocumentId: null,
@@ -245,40 +442,76 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return;
     }
 
+    const docToDelete = activeProject.documents.find((d) => d.id === documentId);
     const filtered = activeProject.documents.filter((d) => d.id !== documentId);
     let nextActiveId = activeDocumentId;
     if (activeDocumentId === documentId) {
       nextActiveId = filtered[0]?.id || null;
     }
 
+    const candidateBlobIds: string[] = [];
+    if (docToDelete && docToDelete.type === 'mindtree') {
+      const content = docToDelete.content as MindTreeContent;
+      if (Array.isArray(content?.nodes)) {
+        for (const node of content.nodes) {
+          if (node.data && typeof node.data.blobId === 'string' && node.data.blobId.trim()) {
+            candidateBlobIds.push(node.data.blobId.trim());
+          }
+        }
+      }
+    }
+
+    const updatedProject: Project = {
+      ...activeProject,
+      updatedAt: new Date().toISOString(),
+      documents: filtered,
+    };
+
     set({
-      activeProject: {
-        ...activeProject,
-        updatedAt: new Date().toISOString(),
-        documents: filtered,
-      },
+      activeProject: updatedProject,
       activeDocumentId: nextActiveId,
       saveStatus: 'unsaved',
     });
+
+    if (candidateBlobIds.length > 0) {
+      void cleanupUnreferencedBlobs(updatedProject, candidateBlobIds);
+    }
 
     get().triggerAutosave();
   },
 
   saveToDisk: async () => {
-    const { activeProject, activeFileHandle } = get();
+    const { activeProject } = get();
     if (!activeProject) return false;
 
-    set({ saveStatus: 'saving' });
-    const result = await saveProjectToFile(activeProject, activeFileHandle);
+    set({ saveStatus: 'saving', errorMessage: null });
+    const result = await enqueueFileWrite(async () => {
+      const latest = get();
+      if (!latest.activeProject) {
+        return { success: false, error: 'No active project to save' };
+      }
+      return saveProjectToFile(latest.activeProject, latest.activeFileHandle);
+    });
 
     if (result.success) {
+      const latest = get();
+      const currentProject = latest.activeProject || activeProject;
+      const updatedHandle =
+        result.fileHandle !== undefined ? result.fileHandle : latest.activeFileHandle;
       set({
         saveStatus: 'saved',
         lastSavedAt: new Date(),
-        activeFileHandle: result.fileHandle !== undefined ? result.fileHandle : activeFileHandle,
+        activeFileHandle: updatedHandle,
+        errorMessage: null,
       });
+
+      // Persist the FileSystemFileHandle in IndexedDB per project id
+      if (updatedHandle) {
+        await setProjectFileHandle(currentProject.id, updatedHandle);
+      }
+
       // also save to Dexie
-      await db.projects.put(activeProject);
+      await db.projects.put(currentProject);
       return true;
     } else {
       set({ saveStatus: 'error', errorMessage: result.error || 'Failed to save' });
@@ -288,15 +521,49 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   openFromDisk: async () => {
     const result = await openProjectFromFile();
-    if (result.success && result.project) {
-      await get().loadProject(result.project, result.fileHandle);
-      return true;
+    if (!result.success || !result.project) {
+      return false;
     }
-    return false;
+
+    const incoming = result.project;
+    const existing = await db.projects.get(incoming.id);
+
+    if (existing) {
+      const resolution = await get().openConflictDialog({
+        projectName: incoming.name,
+        projectId: incoming.id,
+        existingUpdatedAt: existing.updatedAt,
+        incomingUpdatedAt: incoming.updatedAt,
+      });
+
+      if (resolution === 'keep-local') {
+        // Keep local: load existing local project without overwriting
+        await get().loadProject(existing, null);
+        return true;
+      } else if (resolution === 'replace') {
+        // Replace: overwrite local project with imported version
+        await get().loadProject(incoming, result.fileHandle);
+        return true;
+      } else if (resolution === 'import-as-copy') {
+        // Import as copy: generate new IDs and load
+        const copy = cloneProjectWithNewIds(incoming);
+        await get().loadProject(copy, null);
+        return true;
+      }
+      return false;
+    }
+
+    await get().loadProject(incoming, result.fileHandle);
+    return true;
   },
 
   deleteRecentProject: async (projectId) => {
     try {
+      const project = await db.projects.get(projectId);
+      if (project) {
+        await deleteUnreferencedBlobsForProject(project);
+      }
+      await deleteProjectFileHandle(projectId);
       await db.recentProjects.delete(projectId);
       await db.projects.delete(projectId);
       const recents = await db.recentProjects.orderBy('updatedAt').reverse().limit(10).toArray();
@@ -309,46 +576,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   triggerAutosave: () => {
     if (autosaveTimeout) {
       clearTimeout(autosaveTimeout);
+      autosaveTimeout = null;
     }
 
     const interval = get().activeProject?.settings?.autosaveIntervalMs || 800;
 
     autosaveTimeout = setTimeout(async () => {
-      const { activeProject, activeFileHandle } = get();
-      if (!activeProject) return;
-
-      try {
-        set({ saveStatus: 'saving' });
-
-        // 1. Always autosave to IndexedDB
-        await db.projects.put(activeProject);
-
-        const meta: RecentProjectMeta = {
-          id: activeProject.id,
-          name: activeProject.name,
-          description: activeProject.description,
-          updatedAt: activeProject.updatedAt,
-          documentCount: activeProject.documents.length,
-          documentTypes: Array.from(new Set(activeProject.documents.map((d) => d.type))),
-        };
-        await db.recentProjects.put(meta);
-
-        // 2. If we have a file handle with write permission, also write to file
-        if (activeFileHandle && 'createWritable' in activeFileHandle) {
-          try {
-            const writable = await activeFileHandle.createWritable();
-            await writable.write(JSON.stringify(activeProject, null, 2));
-            await writable.close();
-          } catch (fileErr) {
-            console.warn('Autosave to file handle skipped/failed:', fileErr);
-          }
-        }
-
-        set({ saveStatus: 'saved', lastSavedAt: new Date() });
-      } catch (err) {
-        console.error('Autosave error:', err);
-        set({ saveStatus: 'error' });
-      }
+      await flushAutosave();
     }, interval);
+  },
+
+  flushAutosave: async () => {
+    await flushAutosave();
   },
 }));

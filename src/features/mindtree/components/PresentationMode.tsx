@@ -91,7 +91,13 @@ export function PresentationMode({ isOpen, onClose }: PresentationModeProps) {
   const tags = (data.tags as string[]) || [];
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950 text-slate-100 flex flex-col justify-between p-6 sm:p-12 select-none animate-in fade-in-0 duration-200">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Presentation mode"
+      data-mindgraph-overlay="presentation"
+      className="fixed inset-0 z-50 bg-slate-950 text-slate-100 flex flex-col justify-between p-6 sm:p-12 select-none animate-in fade-in-0 duration-200"
+    >
       {/* Top Bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-slate-400">

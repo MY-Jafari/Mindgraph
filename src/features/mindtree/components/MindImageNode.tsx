@@ -14,7 +14,7 @@ export const MindImageNode = React.memo(({ id, data, selected }: NodeProps) => {
     imageWidth?: number;
   };
 
-  const { updateNodeData } = useMindTreeStore();
+  const updateNodeData = useMindTreeStore((state) => state.updateNodeData);
   const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
   const [isEditingCaption, setIsEditingCaption] = useState(false);
   const [captionText, setCaptionText] = useState(nodeData.caption || '');

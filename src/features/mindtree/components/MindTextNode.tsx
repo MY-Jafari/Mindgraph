@@ -2,21 +2,18 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { ChevronRight, Plus, Lock } from 'lucide-react';
 import { useMindTreeStore } from '../mindTreeStore';
-import { buildHierarchy, getDescendantIds } from '../layout';
+import { useMindTreeHierarchy } from '../hierarchyContext';
 import type { MindTreeNodeData } from '../../projects/types';
 import { cn } from '@/shared/utils/cn';
 
 export const MindTextNode = React.memo(({ id, data, selected }: NodeProps) => {
   const nodeData = data as MindTreeNodeData;
-  const {
-    nodes,
-    edges,
-    editingNodeId,
-    setEditingNodeId,
-    updateNodeData,
-    toggleCollapse,
-    addNode,
-  } = useMindTreeStore();
+  const editingNodeId = useMindTreeStore((state) => state.editingNodeId);
+  const setEditingNodeId = useMindTreeStore((state) => state.setEditingNodeId);
+  const updateNodeData = useMindTreeStore((state) => state.updateNodeData);
+  const toggleCollapse = useMindTreeStore((state) => state.toggleCollapse);
+  const addNode = useMindTreeStore((state) => state.addNode);
+  const { childrenMap, descendantCounts } = useMindTreeHierarchy();
 
   const isEditing = editingNodeId === id;
   const [labelValue, setLabelValue] = useState(nodeData.label || '');
@@ -42,12 +39,11 @@ export const MindTextNode = React.memo(({ id, data, selected }: NodeProps) => {
     setEditingNodeId(null);
   };
 
-  // Determine if node has children
-  const childrenMap = buildHierarchy(nodes, edges, null);
+  // Determine if node has children (hierarchy is computed once for the canvas)
   const directChildren = childrenMap.get(id) || [];
   const hasChildren = directChildren.length > 0;
   const isCollapsed = Boolean(nodeData.isCollapsed);
-  const totalDescendantCount = hasChildren ? getDescendantIds(id, childrenMap).length : 0;
+  const totalDescendantCount = descendantCounts.get(id) || 0;
 
   // Shapes
   const shape = nodeData.shape || 'rounded';
@@ -84,7 +80,9 @@ export const MindTextNode = React.memo(({ id, data, selected }: NodeProps) => {
         selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background'
       )}
       style={customStyle}
-      onDoubleClick={() => setEditingNodeId(id)}
+      onDoubleClick={() => {
+        if (!nodeData.isLocked) setEditingNodeId(id);
+      }}
     >
       {/* Target/Source Connection Handles on all 4 cardinal points */}
       <Handle
@@ -180,16 +178,18 @@ export const MindTextNode = React.memo(({ id, data, selected }: NodeProps) => {
       )}
 
       {/* Quick Add Child Button on Hover */}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          addNode(id, 'New Idea');
-        }}
-        className="absolute -end-6 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-primary/90 text-primary-foreground opacity-0 group-hover:opacity-100 transition-all hover:scale-110 flex items-center justify-center shadow-md z-10"
-        title="Add Child (Tab)"
-      >
-        <Plus className="w-3 h-3" />
-      </button>
+      {!nodeData.isLocked && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            addNode(id, 'New Idea');
+          }}
+          className="absolute -end-6 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-primary/90 text-primary-foreground opacity-0 group-hover:opacity-100 transition-all hover:scale-110 flex items-center justify-center shadow-md z-10"
+          title="Add Child (Tab)"
+        >
+          <Plus className="w-3 h-3" />
+        </button>
+      )}
     </div>
   );
 });

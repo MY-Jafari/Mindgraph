@@ -16,7 +16,7 @@ export const MindChecklistNode = React.memo(({ id, data, selected }: NodeProps) 
     items?: ChecklistItem[];
   };
 
-  const { updateNodeData } = useMindTreeStore();
+  const updateNodeData = useMindTreeStore((state) => state.updateNodeData);
   const items: ChecklistItem[] = nodeData.items || [
     { id: '1', text: 'Define milestones', done: true },
     { id: '2', text: 'Implement prototype', done: false },

@@ -20,7 +20,7 @@ export const MindFileNode = React.memo(({ id, data, selected }: NodeProps) => {
     mimeType?: string;
   };
 
-  const { updateNodeData } = useMindTreeStore();
+  const updateNodeData = useMindTreeStore((state) => state.updateNodeData);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fileMeta, setFileMeta] = useState<{ name: string; size: number; mime: string } | null>(null);
 

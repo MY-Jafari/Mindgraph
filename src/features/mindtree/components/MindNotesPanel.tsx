@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import {
   FileText,
   X,
@@ -9,6 +9,12 @@ import {
 import { Button } from '@/shared/components/ui/button';
 import { useMindTreeStore } from '../mindTreeStore';
 import type { MindTreeNodeData } from '../../projects/types';
+
+const TipTapNotesEditor = lazy(() =>
+  import('./TipTapNotesEditor').then((module) => ({
+    default: module.TipTapNotesEditor,
+  }))
+);
 
 interface MindNotesPanelProps {
   isOpen: boolean;
@@ -63,6 +69,7 @@ export function MindNotesPanel({ isOpen, onClose }: MindNotesPanelProps) {
           variant="ghost"
           size="iconSm"
           onClick={onClose}
+          aria-label="Close notes panel"
           className="h-7 w-7 text-muted-foreground hover:text-foreground"
         >
           <X className="w-4 h-4" />
@@ -128,18 +135,24 @@ export function MindNotesPanel({ isOpen, onClose }: MindNotesPanelProps) {
         </div>
       </div>
 
-      {/* Notes Text Area */}
+      {/* Notes TipTap Editor */}
       <div className="flex-1 flex flex-col p-4 space-y-2 overflow-hidden">
         <label className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5">
           <FileText className="w-3.5 h-3.5" />
-          <span>Long Notes & Markdown</span>
+          <span>Long Notes & Rich Text (TipTap)</span>
         </label>
-        <textarea
-          value={notesText}
-          onChange={(e) => handleNotesChange(e.target.value)}
-          placeholder="Write detailed notes, thoughts, bullet points, or markdown..."
-          className="flex-1 w-full p-3 rounded-xl border border-input bg-background/50 text-xs font-mono outline-none resize-none focus:border-primary focus:bg-background transition-colors leading-relaxed"
-        />
+        <Suspense
+          fallback={
+            <div className="flex-1 rounded-xl border border-input bg-muted/20 animate-pulse" />
+          }
+        >
+          <TipTapNotesEditor
+            content={notesText}
+            onChange={handleNotesChange}
+            placeholder="Write detailed notes, thoughts, bullet points..."
+            className="flex-1"
+          />
+        </Suspense>
       </div>
     </aside>
   );

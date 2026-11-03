@@ -105,7 +105,9 @@ describe('Phase 6: Unified Export Services', () => {
     expect(html).toContain('<title>Offline Standalone Graph - Mindgraph Standalone Viewer</title>');
     expect(html).toContain('svg id="graph"');
     expect(html).toContain('searchInput');
-    expect(html).toContain('Central Goal & Strategy');
+    // Inline JSON is escaped so a `</script>` in user data cannot break out.
+    expect(html).toContain('Central Goal \\u0026 Strategy');
+    expect(html).not.toContain('</script><script>');
   });
 
   it('creates and reads valid ZIP backup archive using JSZip', async () => {

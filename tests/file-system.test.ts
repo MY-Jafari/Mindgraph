@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { migrateProject, createDefaultProject } from '../src/features/projects/schema';
+import type { DBSchemaContent } from '../src/features/projects/types';
 
 describe('Project File Serialization & Migration Pipeline', () => {
   it('serializes project to valid JSON string and recovers without data loss', () => {
@@ -65,9 +66,13 @@ describe('Project File Serialization & Migration Pipeline', () => {
     expect(validated.documents).toHaveLength(2);
     const dbDoc = validated.documents[1];
     expect(dbDoc.type).toBe('dbschema');
-    if (dbDoc.type === 'dbschema' && 'tables' in dbDoc.content) {
-      expect(dbDoc.content.tables[0].name).toBe('products');
-      expect(dbDoc.content.tables[0].columns[1].isUnique).toBe(true);
+    if (dbDoc.type === 'dbschema') {
+      // This assertion must not be guarded by `'tables' in content`; that is
+      // exactly how the old union bug silently dropped DB documents.
+      const content = dbDoc.content as DBSchemaContent;
+      expect(content.tables).toHaveLength(1);
+      expect(content.tables[0].name).toBe('products');
+      expect(content.tables[0].columns[1].isUnique).toBe(true);
     }
   });
 

@@ -6,12 +6,17 @@ import { cn } from '@/shared/utils/cn';
 export function SaveStatusIndicator() {
   const { t } = useTranslation();
   const saveStatus = useProjectStore((s) => s.saveStatus);
+  const errorMessage = useProjectStore((s) => s.errorMessage);
   const saveToDisk = useProjectStore((s) => s.saveToDisk);
+
+  const tooltip = saveStatus === 'error' && errorMessage
+    ? `${t('common.saveError')}: ${errorMessage}`
+    : t('common.save');
 
   return (
     <button
       onClick={() => saveToDisk()}
-      title={t('common.save')}
+      title={tooltip}
       className={cn(
         'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all select-none border',
         saveStatus === 'saved' &&
@@ -21,7 +26,7 @@ export function SaveStatusIndicator() {
         saveStatus === 'unsaved' &&
           'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 hover:bg-blue-500/20',
         saveStatus === 'error' &&
-          'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+          'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/25'
       )}
     >
       {saveStatus === 'saved' && (
@@ -44,8 +49,8 @@ export function SaveStatusIndicator() {
       )}
       {saveStatus === 'error' && (
         <>
-          <AlertCircle className="w-3.5 h-3.5" />
-          <span>{t('common.saveError')}</span>
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span className="max-w-[200px] truncate">{errorMessage || t('common.saveError')}</span>
         </>
       )}
     </button>
