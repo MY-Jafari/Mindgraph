@@ -1,5 +1,6 @@
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Shield, Globe, Database, Type, Check, Info } from 'lucide-react';
+import { Settings, Shield, Globe, Database, Type, Check, Info, RefreshCw, Folder } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,11 +13,43 @@ import { Button } from '@/shared/components/ui/button';
 import { useSettingsStore } from '@/shared/stores/settingsStore';
 import { useProjectStore } from '@/features/projects/projectStore';
 import type { SQLDialect, NamingConvention } from '@/features/projects/types';
+import { isDesktopApp } from '@/platform/fileService';
+import type { UpdateStatus } from '@/platform/desktop';
 
 export function SettingsDialog() {
   const { t } = useTranslation();
   const { settings, isSettingsOpen, closeSettings, updateSettings } = useSettingsStore();
   const { activeProject, updateProjectMeta } = useProjectStore();
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+
+  useEffect(() => {
+    if (!isDesktopApp() || !window.mindgraphDesktop?.onUpdateStatus) return;
+    const unsub = window.mindgraphDesktop.onUpdateStatus((status) => {
+      setUpdateStatus(status);
+      if (status.status !== 'checking') {
+        setIsCheckingUpdate(false);
+      }
+    });
+    return unsub;
+  }, []);
+
+  const handleCheckForUpdates = async () => {
+    if (!window.mindgraphDesktop?.checkForUpdates) return;
+    setIsCheckingUpdate(true);
+    setUpdateStatus({ status: 'checking' });
+    try {
+      await window.mindgraphDesktop.checkForUpdates();
+    } catch (e) {
+      setIsCheckingUpdate(false);
+      setUpdateStatus({ status: 'error', message: e instanceof Error ? e.message : 'Check failed' });
+    }
+  };
+
+  const handleOpenBackupFolder = async () => {
+    if (!window.mindgraphDesktop?.openBackupFolder) return;
+    await window.mindgraphDesktop.openBackupFolder();
+  };
 
   if (!isSettingsOpen) return null;
 
@@ -156,7 +189,7 @@ export function SettingsDialog() {
             </div>
           </div>
 
-          {/* Section 3: About Application */}
+          {/* Section 3: About Application & Desktop Controls */}
           <div className="space-y-3 pt-2 border-t border-border">
             <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
               <Info className="w-3.5 h-3.5" />
@@ -168,6 +201,73 @@ export function SettingsDialog() {
                 v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}
               </span>
             </div>
+
+            {isDesktopApp() && (
+              <div className="space-y-2 pt-1">
+                {/* Auto Updater Actions */}
+                <div className="flex items-center justify-between p-3 rounded-lg border border-border/80 bg-muted/20 text-xs">
+                  <div className="space-y-0.5">
+                    <span className="font-medium text-foreground block">
+                      {t('settings.checkForUpdates', 'Check for Updates')}
+                    </span>
+                    {updateStatus && (
+                      <span className="text-[11px] text-muted-foreground block">
+                        {updateStatus.status === 'checking' && t('settings.checkingForUpdates', 'Checking for updates...')}
+                        {updateStatus.status === 'not-available' && t('settings.upToDate', 'Mindgraph is up to date.')}
+                        {updateStatus.status === 'available' && t('settings.updateAvailable', { version: updateStatus.version, defaultValue: `Update v${updateStatus.version} available...` })}
+                        {updateStatus.status === 'downloading' && t('settings.updateDownloading', { percent: updateStatus.percent, defaultValue: `Downloading (${updateStatus.percent}%)...` })}
+                        {updateStatus.status === 'downloaded' && t('settings.updateDownloaded', { version: updateStatus.version, defaultValue: `Update v${updateStatus.version} downloaded.` })}
+                        {updateStatus.status === 'error' && t('settings.updateError', { message: updateStatus.message, defaultValue: `Error: ${updateStatus.message}` })}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {updateStatus?.status === 'downloaded' ? (
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={() => window.mindgraphDesktop?.quitAndInstall()}
+                        className="text-xs h-7 px-2.5"
+                      >
+                        {t('settings.restartNow', 'Restart Now')}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleCheckForUpdates}
+                        disabled={isCheckingUpdate}
+                        className="text-xs h-7 px-2.5 gap-1.5"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isCheckingUpdate ? 'animate-spin' : ''}`} />
+                        <span>{t('settings.checkForUpdates', 'Check')}</span>
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Local Backups Folder */}
+                <div className="flex items-center justify-between p-3 rounded-lg border border-border/80 bg-muted/20 text-xs">
+                  <div>
+                    <span className="font-medium text-foreground block">
+                      {t('settings.localBackups', 'Local Backups')}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground block">
+                      %APPDATA%\Mindgraph\backups
+                    </span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleOpenBackupFolder}
+                    className="text-xs h-7 px-2.5 gap-1.5"
+                  >
+                    <Folder className="w-3.5 h-3.5" />
+                    <span>{t('settings.openBackupFolder', 'Open Folder')}</span>
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

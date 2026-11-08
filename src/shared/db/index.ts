@@ -33,6 +33,12 @@ export interface ProjectFileHandleRecord {
   handle: FileSystemFileHandle;
 }
 
+export interface ProjectFilePathRecord {
+  projectId: string;
+  filePath: string;
+  lastSavedAt?: string;
+}
+
 export class MindgraphDB extends Dexie {
   projects!: Table<Project, string>;
   recentProjects!: Table<RecentProjectMeta, string>;
@@ -40,6 +46,7 @@ export class MindgraphDB extends Dexie {
   fileBlobs!: Table<FileBlobRecord, string>;
   linkPreviews!: Table<LinkPreviewRecord, string>;
   fileHandles!: Table<ProjectFileHandleRecord, string>;
+  filePaths!: Table<ProjectFilePathRecord, string>;
 
   constructor() {
     super('MindgraphDB');
@@ -61,6 +68,10 @@ export class MindgraphDB extends Dexie {
 
     this.version(4).stores({
       documents: null,
+    });
+
+    this.version(5).stores({
+      filePaths: 'projectId',
     });
   }
 }

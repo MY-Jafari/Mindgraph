@@ -14,7 +14,11 @@ import {
   createDefaultDocument,
 } from './schema';
 import { db } from '@/shared/db';
-import { saveProjectToFile, openProjectFromFile } from './fileSystem';
+import {
+  type FileRef,
+  getProjectFileService,
+  isDesktopApp,
+} from '@/platform/fileService';
 import {
   restoreProjectBlobs,
   cleanupUnreferencedBlobs,
@@ -47,6 +51,7 @@ interface ProjectState {
   saveStatus: SaveStatus;
   lastSavedAt: Date | null;
   activeFileHandle: FileSystemFileHandle | null;
+  activeFileRef: FileRef | null;
   recentProjects: RecentProjectMeta[];
   isLoading: boolean;
   errorMessage: string | null;
@@ -63,7 +68,7 @@ interface ProjectState {
 
   // Actions
   initialize: () => Promise<void>;
-  loadProject: (project: Project, fileHandle?: FileSystemFileHandle | null) => Promise<void>;
+  loadProject: (project: Project, fileRefOrHandle?: FileSystemFileHandle | FileRef | null) => Promise<void>;
   createProject: (name?: string, dialect?: SQLDialect) => Promise<Project>;
   closeProject: () => Promise<void>;
   updateProjectMeta: (patch: Partial<Pick<Project, 'name' | 'description' | 'settings'>>) => void;
@@ -78,7 +83,7 @@ interface ProjectState {
   deleteDocument: (documentId: string) => void;
 
   // File I/O
-  saveToDisk: () => Promise<boolean>;
+  saveToDisk: (options?: { saveAs?: boolean }) => Promise<boolean>;
   openFromDisk: () => Promise<boolean>;
   deleteRecentProject: (projectId: string) => Promise<void>;
   triggerAutosave: () => void;
@@ -116,7 +121,7 @@ async function performAutosave(): Promise<void> {
     autosaveTimeout = null;
   }
 
-  const { activeProject, activeFileHandle } = useProjectStore.getState();
+  const { activeProject, activeFileHandle, activeFileRef } = useProjectStore.getState();
   if (!activeProject) return;
 
   try {
@@ -135,16 +140,19 @@ async function performAutosave(): Promise<void> {
     };
     await db.recentProjects.put(meta);
 
-    // 2. If we have a file handle with write permission, also write to file.
-    // Attachments live in IndexedDB, so the file serialization must embed them
-    // every time. Writing `activeProject` directly would silently drop blobs.
-    if (activeFileHandle && 'createWritable' in activeFileHandle) {
+    // 2. If we have an active file reference, write project to file
+    const ref: FileRef | null =
+      activeFileHandle
+        ? { kind: 'handle', handle: activeFileHandle }
+        : activeFileRef;
+
+    if (ref) {
       try {
         await enqueueFileWrite(async () => {
           const { project: projectForFile } = await embedReferencedBlobs(activeProject);
-          const writable = await activeFileHandle.createWritable();
-          await writable.write(JSON.stringify(projectForFile, null, 2));
-          await writable.close();
+          const jsonContent = JSON.stringify(projectForFile, null, 2);
+          const fileService = getProjectFileService();
+          await fileService.writeFile(ref, jsonContent);
         });
       } catch (fileErr) {
         const msg = fileErr instanceof Error ? fileErr.message : 'File write failed during autosave';
@@ -195,6 +203,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   saveStatus: 'saved',
   lastSavedAt: null,
   activeFileHandle: null,
+  activeFileRef: null,
   recentProjects: [],
   isLoading: true,
   errorMessage: null,
@@ -248,20 +257,59 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
   },
 
-  loadProject: async (project, fileHandle = null) => {
+  loadProject: async (project, fileRefOrHandle = null) => {
     try {
       const current = get().activeProject;
       if (current && current.id !== project.id) {
         await flushAutosave();
       }
 
-      // Restore handle from IndexedDB if not explicitly passed, or persist if provided
-      let effectiveHandle = fileHandle;
-      if (!effectiveHandle) {
-        effectiveHandle = await getProjectFileHandle(project.id);
-      } else {
-        await setProjectFileHandle(project.id, effectiveHandle);
+      // Convert argument to FileRef
+      let effectiveRef: FileRef | null = null;
+      if (fileRefOrHandle) {
+        if ('kind' in fileRefOrHandle && (fileRefOrHandle.kind === 'handle' || fileRefOrHandle.kind === 'path')) {
+          effectiveRef = fileRefOrHandle;
+        } else if ('createWritable' in fileRefOrHandle || (fileRefOrHandle as { kind?: string }).kind === 'file') {
+          effectiveRef = { kind: 'handle', handle: fileRefOrHandle as FileSystemFileHandle };
+        }
       }
+
+      const fileService = getProjectFileService();
+
+      let missingFileWarning: string | null = null;
+
+      if (!effectiveRef) {
+        if (isDesktopApp()) {
+          const stored = await db.filePaths.get(project.id);
+          if (stored) {
+            const exists = await fileService.checkExists({ kind: 'path', path: stored.filePath });
+            if (exists) {
+              effectiveRef = { kind: 'path', path: stored.filePath };
+            } else {
+              await db.filePaths.delete(project.id);
+              console.warn('Previously linked project file not found:', stored.filePath);
+              missingFileWarning = `Linked file "${stored.filePath}" was not found on disk. Link has been cleared.`;
+            }
+          }
+        } else {
+          const handle = await getProjectFileHandle(project.id);
+          if (handle) {
+            effectiveRef = { kind: 'handle', handle };
+          }
+        }
+      } else {
+        if (effectiveRef.kind === 'path') {
+          await db.filePaths.put({
+            projectId: project.id,
+            filePath: effectiveRef.path,
+            lastSavedAt: new Date().toISOString(),
+          });
+        } else if (effectiveRef.kind === 'handle') {
+          await setProjectFileHandle(project.id, effectiveRef.handle);
+        }
+      }
+
+      const effectiveHandle = effectiveRef && effectiveRef.kind === 'handle' ? effectiveRef.handle : null;
 
       const firstDoc = project.documents[0];
       // Blobs are stored in their own IndexedDB table. Keeping the base64
@@ -272,9 +320,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         activeProject: projectForState,
         activeDocumentId: firstDoc ? firstDoc.id : null,
         activeFileHandle: effectiveHandle,
+        activeFileRef: effectiveRef,
         saveStatus: 'saved',
         lastSavedAt: new Date(),
-        errorMessage: null,
+        errorMessage: missingFileWarning,
       });
 
       // Save to Dexie
@@ -315,6 +364,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       activeProject: null,
       activeDocumentId: null,
       activeFileHandle: null,
+      activeFileRef: null,
       saveStatus: 'saved',
     });
   },
@@ -508,7 +558,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     get().triggerAutosave();
   },
 
-  saveToDisk: async () => {
+  saveToDisk: async (options?: { saveAs?: boolean }) => {
     const { activeProject } = get();
     if (!activeProject) return false;
 
@@ -518,24 +568,38 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (!latest.activeProject) {
         return { success: false, error: 'No active project to save' };
       }
-      return saveProjectToFile(latest.activeProject, latest.activeFileHandle);
+      const fileService = getProjectFileService();
+      const currentRef: FileRef | null =
+        latest.activeFileHandle
+          ? { kind: 'handle', handle: latest.activeFileHandle }
+          : latest.activeFileRef;
+      return fileService.save(latest.activeProject, currentRef, options);
     });
 
     if (result.success) {
       const latest = get();
       const currentProject = latest.activeProject || activeProject;
-      const updatedHandle =
-        result.fileHandle !== undefined ? result.fileHandle : latest.activeFileHandle;
+      const nextRef = result.ref !== undefined ? result.ref : latest.activeFileRef;
+      const nextHandle = nextRef && nextRef.kind === 'handle' ? nextRef.handle : null;
+
       set({
         saveStatus: 'saved',
         lastSavedAt: new Date(),
-        activeFileHandle: updatedHandle,
+        activeFileRef: nextRef,
+        activeFileHandle: nextHandle,
         errorMessage: null,
       });
 
-      // Persist the FileSystemFileHandle in IndexedDB per project id
-      if (updatedHandle) {
-        await setProjectFileHandle(currentProject.id, updatedHandle);
+      if (nextRef) {
+        if (nextRef.kind === 'path') {
+          await db.filePaths.put({
+            projectId: currentProject.id,
+            filePath: nextRef.path,
+            lastSavedAt: new Date().toISOString(),
+          });
+        } else if (nextRef.kind === 'handle') {
+          await setProjectFileHandle(currentProject.id, nextRef.handle);
+        }
       }
 
       // also save to Dexie
@@ -548,7 +612,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   openFromDisk: async () => {
-    const result = await openProjectFromFile();
+    const fileService = getProjectFileService();
+    const result = await fileService.open();
     if (!result.success || !result.project) {
       return false;
     }
@@ -570,7 +635,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         return true;
       } else if (resolution === 'replace') {
         // Replace: overwrite local project with imported version
-        await get().loadProject(incoming, result.fileHandle);
+        await get().loadProject(incoming, result.ref);
         return true;
       } else if (resolution === 'import-as-copy') {
         // Import as copy: generate new IDs and load
@@ -581,7 +646,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return false;
     }
 
-    await get().loadProject(incoming, result.fileHandle);
+    await get().loadProject(incoming, result.ref);
     return true;
   },
 
@@ -592,6 +657,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await deleteUnreferencedBlobsForProject(project);
       }
       await deleteProjectFileHandle(projectId);
+      await db.filePaths.delete(projectId);
       await db.recentProjects.delete(projectId);
       await db.projects.delete(projectId);
       const recents = await db.recentProjects.orderBy('updatedAt').reverse().limit(10).toArray();

@@ -204,6 +204,17 @@
     "defaultDialect": "لهجه پیش‌فرض SQL",
     "namingConvention": "قرارداد نام‌گذاری",
     "about": "درباره مایندگراف",
-    "version": "نسخه"
+    "version": "نسخه",
+    "checkForUpdates": "بررسی بروزرسانی",
+    "checkingForUpdates": "در حال بررسی بروزرسانی...",
+    "updateAvailable": "نسخه v{{version}} موجود است. در حال دانلود...",
+    "updateDownloading": "در حال دانلود بروزرسانی ({{percent}}٪)...",
+    "updateDownloaded": "نسخه v{{version}} دانلود شد.",
+    "restartNow": "راه‌اندازی مجدد",
+    "later": "بعداً",
+    "upToDate": "مایندگراف به روز است.",
+    "updateError": "خطا در بررسی بروزرسانی: {{message}}",
+    "localBackups": "پشتیبان‌های محلی",
+    "openBackupFolder": "باز کردن پوشه پشتیبان"
   }
 }

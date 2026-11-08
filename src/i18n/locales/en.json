@@ -204,6 +204,17 @@
     "defaultDialect": "Default SQL Dialect",
     "namingConvention": "Naming Convention",
     "about": "About Mindgraph",
-    "version": "Version"
+    "version": "Version",
+    "checkForUpdates": "Check for Updates",
+    "checkingForUpdates": "Checking for updates...",
+    "updateAvailable": "Update v{{version}} is available. Downloading...",
+    "updateDownloading": "Downloading update ({{percent}}%)...",
+    "updateDownloaded": "Update v{{version}} downloaded.",
+    "restartNow": "Restart Now",
+    "later": "Later",
+    "upToDate": "Mindgraph is up to date.",
+    "updateError": "Update check failed: {{message}}",
+    "localBackups": "Local Backups",
+    "openBackupFolder": "Open Backup Folder"
   }
 }
