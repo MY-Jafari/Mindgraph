@@ -13,7 +13,7 @@ import type {
   DBSchemaSnapshot,
   Viewport,
 } from '../projects/types';
-import { getDefaultPrimaryKeyType } from './dialects';
+import { getDefaultPrimaryKeyType, getTimestampConfigForDialect } from './dialects';
 import { calculateERLayout } from './layout';
 import { useProjectStore } from '../projects/projectStore';
 
@@ -64,7 +64,7 @@ export interface DBDesignerState {
   updateTable: (tableId: string, patch: Partial<DBTable>) => void;
   deleteTable: (tableId: string) => void;
   duplicateTable: (tableId: string) => DBTable | null;
-  updateTablePosition: (tableId: string, position: { x: number; y: number }) => void;
+  updateTablePosition: (tableId: string, position: { x: number; y: number }, sync?: boolean) => void;
   quickAddTimestamps: (tableId: string) => void;
   quickAddSoftDelete: (tableId: string) => void;
 
@@ -84,7 +84,7 @@ export interface DBDesignerState {
     sourceColumnId: string,
     targetTableId: string,
     targetColumnId: string
-  ) => DBRelationship;
+  ) => DBRelationship | null;
   updateRelationship: (id: string, patch: Partial<DBRelationship>) => void;
   deleteRelationship: (id: string) => void;
 
@@ -151,7 +151,10 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
 
   setViewport: (viewport: Viewport) => {
     set({ viewport });
-    get().syncToProject();
+    const { documentId } = get();
+    if (documentId) {
+      useProjectStore.getState().updateDocumentViewport(documentId, viewport);
+    }
   },
 
   syncToProject: () => {
@@ -238,6 +241,10 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
 
   saveSnapshot: (name) => {
     const { tables, relationships, snapshots } = get();
+    if (snapshots.length >= 100) {
+      console.warn('Maximum snapshots limit (100) reached.');
+      return null as unknown as DBSchemaSnapshot;
+    }
     const snapshot: DBSchemaSnapshot = {
       id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       name: name.trim() || `v${snapshots.length + 1} Snapshot`,
@@ -258,8 +265,12 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   },
 
   addTable: (name, pos) => {
-    get().recordHistory();
     const { tables, dialect } = get();
+    if (tables.length >= 500) {
+      console.warn('Maximum tables limit (500) reached.');
+      return null as unknown as DBTable;
+    }
+    get().recordHistory();
     const tableId = `tbl-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
     const tableName = name || `table_${tables.length + 1}`;
 
@@ -333,6 +344,10 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
 
   duplicateTable: (tableId) => {
     const { tables } = get();
+    if (tables.length >= 500) {
+      console.warn('Maximum tables limit (500) reached.');
+      return null;
+    }
     const original = tables.find((t) => t.id === tableId);
     if (!original) return null;
 
@@ -341,6 +356,25 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
     const clonedColumns = original.columns.map((col) => ({
       ...col,
       id: `col-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      isForeignKey: false,
+    }));
+
+    const clonedIndexes = (original.indexes || []).map((idx, i) => ({
+      ...idx,
+      id: `idx-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+      name: `${idx.name}_copy`,
+    }));
+
+    const clonedUnique = (original.uniqueConstraints || []).map((u, i) => ({
+      ...u,
+      id: `uq-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+      name: u.name ? `${u.name}_copy` : undefined,
+    }));
+
+    const clonedChecks = (original.checkConstraints || []).map((c, i) => ({
+      ...c,
+      id: `chk-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
+      name: c.name ? `${c.name}_copy` : undefined,
     }));
 
     const duplicated: DBTable = {
@@ -352,6 +386,9 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
         y: original.position.y + 40,
       },
       columns: clonedColumns,
+      indexes: clonedIndexes,
+      uniqueConstraints: clonedUnique,
+      checkConstraints: clonedChecks,
     };
 
     set({
@@ -362,36 +399,53 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
     return duplicated;
   },
 
-  updateTablePosition: (tableId, position) => {
+  updateTablePosition: (tableId, position, sync = true) => {
     set((state) => ({
       tables: state.tables.map((t) => (t.id === tableId ? { ...t, position } : t)),
     }));
-    get().syncToProject();
+    if (sync) {
+      get().syncToProject();
+    }
   },
 
   quickAddTimestamps: (tableId) => {
+    const { tables, dialect } = get();
+    const table = tables.find((t) => t.id === tableId);
+    if (!table) return;
+
+    const existingNames = new Set(table.columns.map((c) => c.name.toLowerCase()));
+    const tsConfig = getTimestampConfigForDialect(dialect);
+    const newColumns: DBColumn[] = [];
+
+    if (!existingNames.has('created_at')) {
+      newColumns.push({
+        id: `col-created-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: 'created_at',
+        type: tsConfig.type,
+        defaultValue: tsConfig.defaultValue,
+        isNullable: false,
+      });
+    }
+
+    if (!existingNames.has('updated_at')) {
+      newColumns.push({
+        id: `col-updated-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: 'updated_at',
+        type: tsConfig.type,
+        defaultValue: tsConfig.defaultValue,
+        isNullable: false,
+      });
+    }
+
+    if (newColumns.length === 0) return;
+
     get().recordHistory();
-    const { tables } = get();
     set({
       tables: tables.map((t) => {
         if (t.id !== tableId) return t;
-        const colCreatedAt: DBColumn = {
-          id: `col-created-${Date.now()}`,
-          name: 'created_at',
-          type: 'timestamptz',
-          defaultValue: 'now()',
-          isNullable: false,
-        };
-        const colUpdatedAt: DBColumn = {
-          id: `col-updated-${Date.now()}`,
-          name: 'updated_at',
-          type: 'timestamptz',
-          defaultValue: 'now()',
-          isNullable: false,
-        };
         return {
           ...t,
-          columns: [...t.columns, colCreatedAt, colUpdatedAt],
+          columns: [...t.columns, ...newColumns],
         };
       }),
     });
@@ -399,17 +453,24 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   },
 
   quickAddSoftDelete: (tableId) => {
+    const { tables, dialect } = get();
+    const table = tables.find((t) => t.id === tableId);
+    if (!table) return;
+
+    const existingNames = new Set(table.columns.map((c) => c.name.toLowerCase()));
+    if (existingNames.has('deleted_at')) return;
+
+    const tsConfig = getTimestampConfigForDialect(dialect);
     get().recordHistory();
-    const { tables } = get();
+    const colDeletedAt: DBColumn = {
+      id: `col-deleted-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name: 'deleted_at',
+      type: tsConfig.type,
+      isNullable: true,
+    };
     set({
       tables: tables.map((t) => {
         if (t.id !== tableId) return t;
-        const colDeletedAt: DBColumn = {
-          id: `col-deleted-${Date.now()}`,
-          name: 'deleted_at',
-          type: 'timestamptz',
-          isNullable: true,
-        };
         return {
           ...t,
           columns: [...t.columns, colDeletedAt],
@@ -446,9 +507,32 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
     set((state) => ({
       tables: state.tables.map((t) => {
         if (t.id !== tableId) return t;
+        const oldCol = t.columns.find((c) => c.id === columnId);
+        const oldName = oldCol?.name;
+        const newName = patch.name;
+
+        const updatedCols = t.columns.map((c) => (c.id === columnId ? { ...c, ...patch } : c));
+
+        if (!oldName || !newName || oldName === newName) {
+          return { ...t, columns: updatedCols };
+        }
+
+        const updatedPk = (t.primaryKey || []).map((n) => (n === oldName ? newName : n));
+        const updatedIndexes = (t.indexes || []).map((idx) => ({
+          ...idx,
+          columns: idx.columns.map((n) => (n === oldName ? newName : n)),
+        }));
+        const updatedUnique = (t.uniqueConstraints || []).map((u) => ({
+          ...u,
+          columns: u.columns.map((n) => (n === oldName ? newName : n)),
+        }));
+
         return {
           ...t,
-          columns: t.columns.map((c) => (c.id === columnId ? { ...c, ...patch } : c)),
+          columns: updatedCols,
+          primaryKey: updatedPk,
+          indexes: updatedIndexes,
+          uniqueConstraints: updatedUnique,
         };
       }),
     }));
@@ -458,6 +542,10 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   deleteColumn: (tableId, columnId) => {
     get().recordHistory();
     set((state) => {
+      const targetTable = state.tables.find((t) => t.id === tableId);
+      const colToDelete = targetTable?.columns.find((c) => c.id === columnId);
+      const colName = colToDelete?.name;
+
       const remainingRelationships = state.relationships.filter(
         (r) =>
           !(
@@ -467,7 +555,39 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
       );
 
       const updatedTables = state.tables.map((t) => {
-        const remainingCols = t.id === tableId ? t.columns.filter((c) => c.id !== columnId) : t.columns;
+        if (t.id !== tableId) {
+          return {
+            ...t,
+            columns: t.columns.map((c) => {
+              if (!c.isForeignKey) return c;
+              const isStillFk = remainingRelationships.some(
+                (r) => r.sourceTableId === t.id && r.sourceColumnId === c.id
+              );
+              return isStillFk ? c : { ...c, isForeignKey: false };
+            }),
+          };
+        }
+
+        const remainingCols = t.columns.filter((c) => c.id !== columnId);
+
+        const remainingPk = colName
+          ? (t.primaryKey || []).filter((n) => n !== colName)
+          : (t.primaryKey || []);
+
+        const remainingIndexes = (t.indexes || [])
+          .map((idx) => ({
+            ...idx,
+            columns: colName ? idx.columns.filter((n) => n !== colName) : idx.columns,
+          }))
+          .filter((idx) => idx.columns.length > 0);
+
+        const remainingUnique = (t.uniqueConstraints || [])
+          .map((u) => ({
+            ...u,
+            columns: colName ? u.columns.filter((n) => n !== colName) : u.columns,
+          }))
+          .filter((u) => u.columns.length > 0);
+
         return {
           ...t,
           columns: remainingCols.map((c) => {
@@ -477,6 +597,9 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
             );
             return isStillFk ? c : { ...c, isForeignKey: false };
           }),
+          primaryKey: remainingPk,
+          indexes: remainingIndexes,
+          uniqueConstraints: remainingUnique,
         };
       });
 
@@ -531,8 +654,41 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   },
 
   addRelationship: (sourceTableId, sourceColumnId, targetTableId, targetColumnId) => {
+    const { relationships, tables, notation } = get();
+
+    if (relationships.length >= 2000) {
+      console.warn('Maximum relationships limit (2000) reached.');
+      return null;
+    }
+
+    if (sourceTableId === targetTableId && sourceColumnId === targetColumnId) {
+      console.warn('Cannot link a column to itself.');
+      return null;
+    }
+
+    const exists = relationships.some(
+      (r) =>
+        r.sourceTableId === sourceTableId &&
+        r.sourceColumnId === sourceColumnId &&
+        r.targetTableId === targetTableId &&
+        r.targetColumnId === targetColumnId
+    );
+    if (exists) {
+      console.warn('Relationship between these columns already exists.');
+      return null;
+    }
+
+    const srcTable = tables.find((t) => t.id === sourceTableId);
+    const srcCol = srcTable?.columns.find((c) => c.id === sourceColumnId);
+    const pkNames =
+      srcTable?.primaryKey && srcTable.primaryKey.length > 0
+        ? srcTable.primaryKey
+        : srcTable?.columns.filter((c) => c.isPrimaryKey).map((c) => c.name) || [];
+    const isSolePk = Boolean(srcCol?.name && pkNames.length === 1 && pkNames[0] === srcCol.name);
+    const isUnique = Boolean(srcCol?.isUnique || isSolePk);
+    const cardinality = isUnique ? 'one-to-one' : 'one-to-many';
+
     get().recordHistory();
-    const { relationships, notation } = get();
     const relId = `rel-${sourceTableId}-${targetTableId}-${Date.now()}`;
 
     const newRel: DBRelationship = {
@@ -541,7 +697,7 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
       sourceColumnId,
       targetTableId,
       targetColumnId,
-      cardinality: 'one-to-many',
+      cardinality,
       onDelete: 'CASCADE',
       onUpdate: 'NO ACTION',
       notation,

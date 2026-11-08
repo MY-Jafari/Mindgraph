@@ -133,7 +133,7 @@ describe('DB Designer Core & Dialects Tests', () => {
     expect(postsTable.columns.find((c) => c.id === 'p_uid')?.isForeignKey).toBe(true);
 
     // 2. Delete relationship -> verify isForeignKey is reset to false
-    useDBDesignerStore.getState().deleteRelationship(rel.id);
+    useDBDesignerStore.getState().deleteRelationship(rel!.id);
     postsTable = useDBDesignerStore.getState().tables.find((t: DBTable) => t.id === 'tbl-posts')!;
     expect(postsTable.columns.find((c) => c.id === 'p_uid')?.isForeignKey).toBe(false);
 

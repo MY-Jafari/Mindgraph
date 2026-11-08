@@ -36,7 +36,15 @@
     "fitView": "نمای کامل",
     "backToWelcome": "صفحه اصلی محیط کار",
     "commandPalette": "پالت دستورات",
-    "pressShortcut": "فشار دهید"
+    "pressShortcut": "فشار دهید",
+    "maxSnapshotsReached": "به حداکثر تعداد عکس فوری (۱۰۰) رسیده‌اید.",
+    "maxTablesReached": "به حداکثر تعداد جدول‌ها (۵۰۰) رسیده‌اید.",
+    "maxDocumentsReached": "به حداکثر تعداد سندها (۲۰۰) رسیده‌اید.",
+    "maxNodesReached": "به حداکثر تعداد گره‌ها (۲۰,۰۰۰) رسیده‌اید.",
+    "maxRelationshipsReached": "به حداکثر تعداد روابط (۲,۰۰۰) رسیده‌اید.",
+    "maxColumnsReached": "به حداکثر تعداد ستون‌ها (۱,۰۰۰) رسیده‌اید.",
+    "duplicateRelationship": "ارتباطی بین این ستون‌ها از قبل وجود دارد.",
+    "selfRelationshipNotAllowed": "اتصال یک ستون به خودش مجاز نیست."
   },
   "nav": {
     "projects": "پروژه‌ها",

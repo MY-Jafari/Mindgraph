@@ -144,3 +144,96 @@ export function getDefaultPrimaryKeyType(dialect: SQLDialect): string {
       return 'bigint';
   }
 }
+
+/**
+ * Shared nullability helper across DDL, linter, diff and migrations.
+ * Primary keys are never nullable. Otherwise, only explicit `isNullable === false` is NOT NULL.
+ */
+export function isColumnNullable(col: { isPrimaryKey?: boolean; isNullable?: boolean }): boolean {
+  if (col.isPrimaryKey) return false;
+  return col.isNullable !== false;
+}
+
+export interface DialectTimestampConfig {
+  type: string;
+  defaultValue: string;
+}
+
+/**
+ * Returns dialect-aware column type and default expression for timestamps.
+ */
+export function getTimestampConfigForDialect(dialect: SQLDialect): DialectTimestampConfig {
+  switch (dialect) {
+    case 'postgresql':
+      return { type: 'timestamptz', defaultValue: 'now()' };
+    case 'mysql':
+    case 'mariadb':
+      return { type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' };
+    case 'sqlite':
+      return { type: 'datetime', defaultValue: 'CURRENT_TIMESTAMP' };
+    case 'sqlserver':
+      return { type: 'datetime2', defaultValue: 'SYSUTCDATETIME()' };
+    case 'oracle':
+      return { type: 'TIMESTAMP', defaultValue: 'SYSTIMESTAMP' };
+    default:
+      return { type: 'timestamptz', defaultValue: 'now()' };
+  }
+}
+
+export interface FKActionMapping {
+  clause?: string;
+  warning?: string;
+}
+
+/**
+ * Maps foreign key actions according to target dialect capabilities,
+ * returning the closest valid SQL clause and any portability warning.
+ */
+export function mapForeignKeyAction(
+  dialect: SQLDialect,
+  action: string | undefined,
+  event: 'DELETE' | 'UPDATE'
+): FKActionMapping {
+  if (!action) return {};
+  const upper = action.toUpperCase().trim();
+
+  if (dialect === 'oracle') {
+    if (event === 'UPDATE') {
+      return {
+        warning: 'Oracle does not support on-update foreign key actions. Clause omitted.',
+      };
+    }
+    if (upper === 'CASCADE') return { clause: 'ON DELETE CASCADE' };
+    if (upper === 'SET NULL') return { clause: 'ON DELETE SET NULL' };
+    if (upper === 'SET DEFAULT') {
+      return {
+        warning: 'Oracle does not support ON DELETE SET DEFAULT. Action omitted (defaults to NO ACTION).',
+      };
+    }
+    // RESTRICT and NO ACTION are default Oracle behavior
+    return {};
+  }
+
+  if (dialect === 'sqlserver') {
+    if (upper === 'RESTRICT') {
+      return {
+        clause: `ON ${event} NO ACTION`,
+        warning: `SQL Server does not support ${event} RESTRICT; mapped to NO ACTION.`,
+      };
+    }
+    return { clause: `ON ${event} ${upper}` };
+  }
+
+  if (dialect === 'mysql' || dialect === 'mariadb') {
+    if (upper === 'SET DEFAULT') {
+      return {
+        clause: `ON ${event} NO ACTION`,
+        warning: `${dialect.toUpperCase()} InnoDB does not support ${event} SET DEFAULT; mapped to NO ACTION.`,
+      };
+    }
+    return { clause: `ON ${event} ${upper}` };
+  }
+
+  // PostgreSQL and SQLite support CASCADE, SET NULL, SET DEFAULT, RESTRICT, NO ACTION
+  return { clause: `ON ${event} ${upper}` };
+}

@@ -1,5 +1,6 @@
 import { format } from 'sql-formatter';
 import type { DBTable, DBColumn, DBRelationship, SQLDialect } from '@/features/projects/types';
+import { isColumnNullable, mapForeignKeyAction } from '../dialects';
 
 export interface DDLOptions {
   dialect?: SQLDialect;
@@ -47,9 +48,10 @@ function columnDefinition(
   dialect: SQLDialect,
   quoted: boolean,
   primaryKeyNames: string[],
-  relationships: DBRelationship[],
+  inlineRelationships: DBRelationship[],
   tables: DBTable[],
-  inlineFK: boolean
+  inlineFK: boolean,
+  warnings: string[]
 ): string {
   const colName = quoteId(column.name, dialect, quoted);
   const isPrimary = primaryKeyNames.includes(column.name);
@@ -84,7 +86,9 @@ function columnDefinition(
     def += ' UNIQUE';
   }
 
-  if (column.isNullable === false) {
+  if (!isPrimary && !isColumnNullable(column)) {
+    def += ' NOT NULL';
+  } else if (compositePrimary && isPrimary) {
     def += ' NOT NULL';
   }
 
@@ -97,7 +101,7 @@ function columnDefinition(
   }
 
   if (inlineFK) {
-    const rel = relationships.find(
+    const rel = inlineRelationships.find(
       (relationship) =>
         relationship.sourceTableId === table.id && relationship.sourceColumnId === column.id
     );
@@ -110,13 +114,159 @@ function columnDefinition(
         const targetTableName = qualifiedTableName(targetTable, dialect, quoted);
         const targetColumnName = quoteId(targetColumn.name, dialect, quoted);
         def += ` REFERENCES ${targetTableName} (${targetColumnName})`;
-        if (rel.onDelete) def += ` ON DELETE ${rel.onDelete}`;
-        if (rel.onUpdate) def += ` ON UPDATE ${rel.onUpdate}`;
+
+        const delMap = mapForeignKeyAction(dialect, rel.onDelete, 'DELETE');
+        if (delMap.warning) warnings.push(delMap.warning);
+        if (delMap.clause) def += ` ${delMap.clause}`;
+
+        const updMap = mapForeignKeyAction(dialect, rel.onUpdate, 'UPDATE');
+        if (updMap.warning) warnings.push(updMap.warning);
+        if (updMap.clause) def += ` ${updMap.clause}`;
       }
     }
   }
 
   return def;
+}
+
+/**
+ * Topologically sorts tables based on foreign key relationships.
+ * If cycles exist, cyclic relationships are identified and returned separately
+ * so they can be emitted as ALTER TABLE statements instead of breaking table creation.
+ */
+function sortTablesTopologically(
+  tables: DBTable[],
+  relationships: DBRelationship[],
+  dialect: SQLDialect
+): { orderedTables: DBTable[]; inlineRels: DBRelationship[]; cyclicRels: DBRelationship[] } {
+  const tableMap = new Map<string, DBTable>();
+  tables.forEach((t) => tableMap.set(t.id, t));
+
+  // Build adjacency list: target -> list of sources (target must be created before source)
+  const adj = new Map<string, string[]>();
+  tables.forEach((t) => adj.set(t.id, []));
+
+  const validRels: DBRelationship[] = [];
+  const cyclicRels: DBRelationship[] = [];
+
+  // Filter relationships that belong to existing tables
+  for (const rel of relationships) {
+    if (tableMap.has(rel.sourceTableId) && tableMap.has(rel.targetTableId)) {
+      validRels.push(rel);
+    }
+  }
+
+  // SQLite cannot use ALTER TABLE ADD CONSTRAINT, so keep all FKs inline
+  if (dialect === 'sqlite') {
+    return {
+      orderedTables: tables,
+      inlineRels: validRels,
+      cyclicRels: [],
+    };
+  }
+
+  // Detect cycles using DFS
+  // 0: unvisited, 1: visiting, 2: visited
+  const state = new Map<string, number>();
+  tables.forEach((t) => state.set(t.id, 0));
+
+  const cyclicRelIds = new Set<string>();
+
+  // For cycle detection: an edge is from source -> target (source references target)
+  const sourceToTargets = new Map<string, { targetId: string; rel: DBRelationship }[]>();
+  tables.forEach((t) => sourceToTargets.set(t.id, []));
+  for (const rel of validRels) {
+    if (rel.sourceTableId !== rel.targetTableId) {
+      sourceToTargets.get(rel.sourceTableId)?.push({ targetId: rel.targetTableId, rel });
+    }
+  }
+
+  function detectCycles(tableId: string, visitedInPath: Set<string>) {
+    state.set(tableId, 1);
+    visitedInPath.add(tableId);
+
+    const edges = sourceToTargets.get(tableId) || [];
+    for (const { targetId, rel } of edges) {
+      if (visitedInPath.has(targetId)) {
+        // Back edge: cycle detected!
+        cyclicRelIds.add(rel.id);
+      } else if (state.get(targetId) === 0) {
+        detectCycles(targetId, visitedInPath);
+      }
+    }
+
+    visitedInPath.delete(tableId);
+    state.set(tableId, 2);
+  }
+
+  for (const table of tables) {
+    if (state.get(table.id) === 0) {
+      detectCycles(table.id, new Set<string>());
+    }
+  }
+
+  const inlineRels: DBRelationship[] = [];
+  for (const rel of validRels) {
+    if (cyclicRelIds.has(rel.id)) {
+      cyclicRels.push(rel);
+    } else {
+      inlineRels.push(rel);
+    }
+  }
+
+  // Now topological sort on DAG (target before source)
+  // in-degree = number of distinct non-cyclic targets that this table depends on
+  const inDegree = new Map<string, number>();
+  const dependents = new Map<string, string[]>(); // target -> list of sources
+  tables.forEach((t) => {
+    inDegree.set(t.id, 0);
+    dependents.set(t.id, []);
+  });
+
+  for (const rel of inlineRels) {
+    if (rel.sourceTableId !== rel.targetTableId) {
+      inDegree.set(rel.sourceTableId, (inDegree.get(rel.sourceTableId) || 0) + 1);
+      dependents.get(rel.targetTableId)?.push(rel.sourceTableId);
+    }
+  }
+
+  const queue: string[] = [];
+  for (const [id, deg] of inDegree.entries()) {
+    if (deg === 0) {
+      queue.push(id);
+    }
+  }
+
+  const sortedIds: string[] = [];
+  while (queue.length > 0) {
+    const curr = queue.shift()!;
+    sortedIds.push(curr);
+    for (const next of dependents.get(curr) || []) {
+      const newDeg = (inDegree.get(next) || 1) - 1;
+      inDegree.set(next, newDeg);
+      if (newDeg === 0) {
+        queue.push(next);
+      }
+    }
+  }
+
+  // Include any remaining tables (if any) in original order
+  const orderedTables: DBTable[] = [];
+  const addedIds = new Set<string>();
+  for (const id of sortedIds) {
+    const tbl = tableMap.get(id);
+    if (tbl) {
+      orderedTables.push(tbl);
+      addedIds.add(id);
+    }
+  }
+  for (const tbl of tables) {
+    if (!addedIds.has(tbl.id)) {
+      orderedTables.push(tbl);
+    }
+  }
+
+  return { orderedTables, inlineRels, cyclicRels };
 }
 
 /**
@@ -134,12 +284,18 @@ export function generateDDL(
   const dropIfExists = options.dropIfExists ?? false;
   const ifNotExists = options.ifNotExists ?? true;
   const quoted = options.quotedIdentifiers ?? false;
-  const inlineFK = options.inlineForeignKeys ?? false;
+
+  // SQLite cannot use ALTER TABLE ADD CONSTRAINT, so always inline foreign keys
+  const inlineFK = dialect === 'sqlite' ? true : (options.inlineForeignKeys ?? false);
+
+  const { orderedTables, inlineRels, cyclicRels } = inlineFK
+    ? sortTablesTopologically(tables, relationships, dialect)
+    : { orderedTables: tables, inlineRels: [], cyclicRels: relationships };
 
   const ddlStatements: string[] = [];
 
   if (dropIfExists) {
-    for (const table of [...tables].reverse()) {
+    for (const table of [...orderedTables].reverse()) {
       const name = qualifiedTableName(table, dialect, quoted);
       if (dialect === 'postgresql') {
         ddlStatements.push(`DROP TABLE IF EXISTS ${name} CASCADE;`);
@@ -154,10 +310,12 @@ export function generateDDL(
     }
   }
 
-  for (const table of tables) {
+  for (const table of orderedTables) {
     const tableName = qualifiedTableName(table, dialect, quoted);
     const useIfNotExists = ifNotExists && supportsIfNotExists(dialect);
     const primaryKeyNames = getPrimaryKeyNames(table);
+    const warnings: string[] = [];
+
     const columnDefs = table.columns.map((column) =>
       columnDefinition(
         table,
@@ -165,9 +323,10 @@ export function generateDDL(
         dialect,
         quoted,
         primaryKeyNames,
-        relationships,
+        inlineRels,
         tables,
-        inlineFK
+        inlineFK,
+        warnings
       )
     );
 
@@ -190,6 +349,11 @@ export function generateDDL(
       tableConstraints.push(`${nameClause}CHECK (${check.expression})`);
     }
 
+    if (warnings.length > 0) {
+      const uniqueWarnings = Array.from(new Set(warnings));
+      uniqueWarnings.forEach((w) => ddlStatements.push(`-- WARNING: ${w}`));
+    }
+
     const lines = [...columnDefs, ...tableConstraints];
     ddlStatements.push(
       `CREATE TABLE ${useIfNotExists ? 'IF NOT EXISTS ' : ''}${tableName} (\n  ${lines.join(
@@ -201,36 +365,72 @@ export function generateDDL(
       const unique = index.isUnique ? 'UNIQUE ' : '';
       const indexName = quoteId(index.name, dialect, quoted);
       const columns = index.columns.map((name) => quoteId(name, dialect, quoted)).join(', ');
-      ddlStatements.push(`CREATE ${unique}INDEX ${indexName} ON ${tableName} (${columns});`);
+      const indexType = (index.type || 'btree').toLowerCase();
+
+      if (dialect === 'postgresql') {
+        if (['btree', 'hash', 'gin', 'gist', 'brin', 'spgist'].includes(indexType)) {
+          ddlStatements.push(`CREATE ${unique}INDEX ${indexName} ON ${tableName} USING ${indexType} (${columns});`);
+        } else {
+          ddlStatements.push(`-- WARNING: PostgreSQL does not support ${indexType} index type; created standard index.`);
+          ddlStatements.push(`CREATE ${unique}INDEX ${indexName} ON ${tableName} (${columns});`);
+        }
+      } else if (dialect === 'mysql' || dialect === 'mariadb') {
+        if (indexType === 'fulltext') {
+          ddlStatements.push(`CREATE FULLTEXT INDEX ${indexName} ON ${tableName} (${columns});`);
+        } else if (indexType === 'hash' || indexType === 'btree') {
+          ddlStatements.push(`CREATE ${unique}INDEX ${indexName} ON ${tableName} (${columns}) USING ${indexType.toUpperCase()};`);
+        } else {
+          ddlStatements.push(`-- WARNING: ${dialect.toUpperCase()} does not support ${indexType} index type; created standard index.`);
+          ddlStatements.push(`CREATE ${unique}INDEX ${indexName} ON ${tableName} (${columns});`);
+        }
+      } else {
+        if (indexType !== 'btree') {
+          ddlStatements.push(`-- WARNING: ${dialect} does not support ${indexType} index type; created standard index.`);
+        }
+        ddlStatements.push(`CREATE ${unique}INDEX ${indexName} ON ${tableName} (${columns});`);
+      }
     }
   }
 
-  if (!inlineFK) {
-    let fkIndex = 0;
-    for (const rel of relationships) {
-      const sourceTable = tables.find((table) => table.id === rel.sourceTableId);
-      const targetTable = tables.find((table) => table.id === rel.targetTableId);
-      const sourceColumn = sourceTable?.columns.find((column) => column.id === rel.sourceColumnId);
-      const targetColumn = targetTable?.columns.find((column) => column.id === rel.targetColumnId);
+  // Emit non-inline or cyclic foreign keys via ALTER TABLE
+  const alterRelationships = inlineFK ? cyclicRels : relationships;
+  let fkIndex = 0;
+  for (const rel of alterRelationships) {
+    const sourceTable = tables.find((table) => table.id === rel.sourceTableId);
+    const targetTable = tables.find((table) => table.id === rel.targetTableId);
+    const sourceColumn = sourceTable?.columns.find((column) => column.id === rel.sourceColumnId);
+    const targetColumn = targetTable?.columns.find((column) => column.id === rel.targetColumnId);
 
-      if (!sourceTable || !targetTable || !sourceColumn || !targetColumn) continue;
+    if (!sourceTable || !targetTable || !sourceColumn || !targetColumn) continue;
 
-      const sourceTableName = qualifiedTableName(sourceTable, dialect, quoted);
-      const targetTableName = qualifiedTableName(targetTable, dialect, quoted);
-      const sourceColumnName = quoteId(sourceColumn.name, dialect, quoted);
-      const targetColumnName = quoteId(targetColumn.name, dialect, quoted);
-      const constraintName = quoteId(
-        `fk_${sourceTable.name}_${sourceColumn.name}_${fkIndex++}`,
-        dialect,
-        quoted
-      );
+    const sourceTableName = qualifiedTableName(sourceTable, dialect, quoted);
+    const targetTableName = qualifiedTableName(targetTable, dialect, quoted);
+    const sourceColumnName = quoteId(sourceColumn.name, dialect, quoted);
+    const targetColumnName = quoteId(targetColumn.name, dialect, quoted);
+    const constraintName = quoteId(
+      `fk_${sourceTable.name}_${sourceColumn.name}_${fkIndex++}`,
+      dialect,
+      quoted
+    );
 
-      let alterSql = `ALTER TABLE ${sourceTableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${sourceColumnName}) REFERENCES ${targetTableName} (${targetColumnName})`;
-      if (rel.onDelete) alterSql += ` ON DELETE ${rel.onDelete}`;
-      if (rel.onUpdate) alterSql += ` ON UPDATE ${rel.onUpdate}`;
-      alterSql += ';';
-      ddlStatements.push(alterSql);
+    const warnings: string[] = [];
+    let alterSql = `ALTER TABLE ${sourceTableName} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${sourceColumnName}) REFERENCES ${targetTableName} (${targetColumnName})`;
+
+    const delMap = mapForeignKeyAction(dialect, rel.onDelete, 'DELETE');
+    if (delMap.warning) warnings.push(delMap.warning);
+    if (delMap.clause) alterSql += ` ${delMap.clause}`;
+
+    const updMap = mapForeignKeyAction(dialect, rel.onUpdate, 'UPDATE');
+    if (updMap.warning) warnings.push(updMap.warning);
+    if (updMap.clause) alterSql += ` ${updMap.clause}`;
+
+    alterSql += ';';
+
+    if (warnings.length > 0) {
+      const uniqueWarnings = Array.from(new Set(warnings));
+      uniqueWarnings.forEach((w) => ddlStatements.push(`-- WARNING: ${w}`));
     }
+    ddlStatements.push(alterSql);
   }
 
   const rawSql = ddlStatements.join('\n\n');

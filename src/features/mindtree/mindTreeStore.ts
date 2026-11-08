@@ -61,7 +61,7 @@ export interface MindTreeState {
   addNode: (parentId?: string | null, label?: string) => MindTreeNode;
   addRichNode: (type: string, parentId?: string | null, customData?: Record<string, unknown>) => MindTreeNode;
   addSiblingNode: (referenceNodeId: string) => MindTreeNode | null;
-  updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
+  updateNodePosition: (nodeId: string, position: { x: number; y: number }, sync?: boolean) => void;
   updateNodeData: (nodeId: string, dataPatch: Partial<MindTreeNodeData>) => void;
   applyStyleToBranch: (rootId: string, stylePatch: Partial<MindTreeNodeData>) => void;
   applyPreset: (preset: StylePreset) => void;
@@ -135,7 +135,10 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
 
   setViewport: (viewport: Viewport) => {
     set({ viewport });
-    get().syncToProject();
+    const { documentId } = get();
+    if (documentId) {
+      useProjectStore.getState().updateDocumentViewport(documentId, viewport);
+    }
   },
 
   syncToProject: () => {
@@ -244,8 +247,12 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   setFocusMode: (focus) => set({ isFocusMode: focus }),
 
   addNode: (parentId, label = 'New Node') => {
-    get().recordHistory();
     const { nodes, edges, selectedNodeIds, rootNodeId, layoutMode } = get();
+    if (nodes.length >= 20000) {
+      console.warn('Maximum nodes limit (20,000) reached.');
+      return null as unknown as MindTreeNode;
+    }
+    get().recordHistory();
     const effectiveParentId = parentId !== undefined ? parentId : (selectedNodeIds[0] || rootNodeId);
 
     const parentNode = nodes.find((n) => n.id === effectiveParentId);
@@ -296,8 +303,12 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   },
 
   addRichNode: (type, parentId, customData = {}) => {
-    get().recordHistory();
     const { nodes, edges, selectedNodeIds, rootNodeId, layoutMode } = get();
+    if (nodes.length >= 20000) {
+      console.warn('Maximum nodes limit (20,000) reached.');
+      return null as unknown as MindTreeNode;
+    }
+    get().recordHistory();
     const effectiveParentId = parentId !== undefined ? parentId : (selectedNodeIds[0] || rootNodeId);
 
     const parentNode = nodes.find((n) => n.id === effectiveParentId);
@@ -366,13 +377,15 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
     return get().addNode(parentId || null, 'New Sibling');
   },
 
-  updateNodePosition: (nodeId, position) => {
+  updateNodePosition: (nodeId, position, sync = true) => {
     const node = get().nodes.find((n) => n.id === nodeId);
     if (node?.data?.isLocked) return;
     set((state) => ({
       nodes: state.nodes.map((n) => (n.id === nodeId ? { ...n, position } : n)),
     }));
-    get().syncToProject();
+    if (sync) {
+      get().syncToProject();
+    }
   },
 
   updateNodeData: (nodeId, dataPatch) => {
@@ -423,7 +436,6 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   },
 
   deleteSelected: () => {
-    get().recordHistory();
     const { nodes, edges, selectedNodeIds, selectedEdgeIds, rootNodeId } = get();
 
     // Do not delete root node completely if it is the only node, and never
@@ -433,6 +445,8 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
       selectedNodeIds.filter((id) => id !== rootNodeId && !lockedIds.has(id))
     );
     if (nodesToDelete.size === 0 && selectedEdgeIds.length === 0) return;
+
+    get().recordHistory();
 
     // Also collect descendants of nodes being deleted
     const childrenMap = buildHierarchy(nodes, edges, null);

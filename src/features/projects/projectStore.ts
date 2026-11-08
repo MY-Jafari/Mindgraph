@@ -7,6 +7,7 @@ import type {
   SQLDialect,
   RecentProjectMeta,
   MindTreeContent,
+  Viewport,
 } from './types';
 import {
   createDefaultProject,
@@ -72,6 +73,7 @@ interface ProjectState {
   addDocument: (title: string, type: DocumentType, dialect?: SQLDialect) => Document;
   updateDocumentTitle: (documentId: string, title: string) => void;
   updateDocumentContent: (documentId: string, content: DocumentContent) => void;
+  updateDocumentViewport: (documentId: string, viewport: Viewport) => void;
   duplicateDocument: (documentId: string) => Document | null;
   deleteDocument: (documentId: string) => void;
 
@@ -340,6 +342,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!activeProject) {
       throw new Error('No active project to add document to');
     }
+    if (activeProject.documents.length >= 200) {
+      throw new Error('Maximum documents limit (200) reached.');
+    }
 
     const docDialect = dialect || activeProject.settings.defaultDialect;
     const newDoc = createDefaultDocument(activeProject.id, title, type, docDialect);
@@ -398,6 +403,29 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     });
 
     get().triggerAutosave();
+  },
+
+  updateDocumentViewport: (documentId, viewport) => {
+    const { activeProject } = get();
+    if (!activeProject) return;
+
+    const updatedDocuments = activeProject.documents.map((doc) => {
+      if (doc.id !== documentId) return doc;
+      return {
+        ...doc,
+        content: {
+          ...doc.content,
+          viewport,
+        },
+      };
+    });
+
+    set({
+      activeProject: {
+        ...activeProject,
+        documents: updatedDocuments,
+      },
+    });
   },
 
   duplicateDocument: (documentId) => {

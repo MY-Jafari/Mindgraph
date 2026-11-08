@@ -25,22 +25,45 @@ export function extractDomain(url: string): string {
   }
 }
 
+const YOUTUBE_HOSTS = new Set([
+  'youtube.com',
+  'www.youtube.com',
+  'm.youtube.com',
+  'music.youtube.com',
+  'youtu.be',
+]);
+
+const YT_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
+
 export function extractYouTubeId(url: string): string | null {
   try {
     const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
-    if (parsed.hostname.includes('youtu.be')) {
-      return parsed.pathname.slice(1);
-    }
-    if (parsed.hostname.includes('youtube.com')) {
+    const host = parsed.hostname.toLowerCase();
+    if (!YOUTUBE_HOSTS.has(host)) return null;
+
+    let candidateId: string | null = null;
+
+    if (host === 'youtu.be') {
+      candidateId = parsed.pathname.slice(1).split(/[?#/]/)[0] || null;
+    } else {
       if (parsed.pathname.startsWith('/shorts/')) {
-        return parsed.pathname.split('/shorts/')[1]?.split(/[?#]/)[0] || null;
+        candidateId = parsed.pathname.slice('/shorts/'.length).split(/[?#/]/)[0] || null;
+      } else if (parsed.pathname.startsWith('/embed/')) {
+        candidateId = parsed.pathname.slice('/embed/'.length).split(/[?#/]/)[0] || null;
+      } else if (parsed.pathname.startsWith('/live/')) {
+        candidateId = parsed.pathname.slice('/live/'.length).split(/[?#/]/)[0] || null;
+      } else {
+        candidateId = parsed.searchParams.get('v');
       }
-      return parsed.searchParams.get('v');
     }
+
+    if (candidateId && YT_ID_REGEX.test(candidateId)) {
+      return candidateId;
+    }
+    return null;
   } catch {
     return null;
   }
-  return null;
 }
 
 export async function fetchYouTubePreview(url: string, ytId: string): Promise<LinkMetadata> {

@@ -6,6 +6,7 @@ import type {
   DBSchemaSnapshot,
 } from '@/features/projects/types';
 import { generateDDL } from './ddlGenerator';
+import { isColumnNullable, mapForeignKeyAction } from '../dialects';
 
 export type SchemaSnapshot = DBSchemaSnapshot;
 
@@ -52,8 +53,8 @@ function columnChanges(oldColumn: DBColumn, newColumn: DBColumn): string[] {
   if (oldColumn.type.toLowerCase() !== newColumn.type.toLowerCase()) {
     changes.push(`type: ${oldColumn.type} -> ${newColumn.type}`);
   }
-  if (bool(oldColumn.isNullable) !== bool(newColumn.isNullable)) {
-    changes.push(`nullable: ${bool(oldColumn.isNullable)} -> ${bool(newColumn.isNullable)}`);
+  if (isColumnNullable(oldColumn) !== isColumnNullable(newColumn)) {
+    changes.push(`nullable: ${isColumnNullable(oldColumn)} -> ${isColumnNullable(newColumn)}`);
   }
   if (bool(oldColumn.isUnique) !== bool(newColumn.isUnique)) {
     changes.push(`unique: ${bool(oldColumn.isUnique)} -> ${bool(newColumn.isUnique)}`);
@@ -243,7 +244,7 @@ function columnDefinition(column: DBColumn, dialect: SQLDialect): string {
   let definition = `${quote(column.name, dialect)} ${column.type}`;
   if (column.isPrimaryKey) definition += ' PRIMARY KEY';
   if (column.isUnique && !column.isPrimaryKey) definition += ' UNIQUE';
-  if (column.isNullable === false) definition += ' NOT NULL';
+  if (!isColumnNullable(column)) definition += ' NOT NULL';
   if (column.defaultValue) definition += ` DEFAULT ${column.defaultValue}`;
   if (column.checkConstraint) definition += ` CHECK (${column.checkConstraint})`;
   return definition;
@@ -252,7 +253,7 @@ function columnDefinition(column: DBColumn, dialect: SQLDialect): string {
 /** SQL Server/Oracle ALTER COLUMN do not accept PRIMARY KEY/UNIQUE inline. */
 function alterColumnDefinition(column: DBColumn, dialect: SQLDialect): string {
   let definition = `${quote(column.name, dialect)} ${column.type}`;
-  if (column.isNullable === false) definition += ' NOT NULL';
+  if (!isColumnNullable(column)) definition += ' NOT NULL';
   if (column.defaultValue && dialect === 'oracle') definition += ` DEFAULT ${column.defaultValue}`;
   return definition;
 }
@@ -274,8 +275,10 @@ function relationshipSql(
     dialect
   );
   let sql = `ALTER TABLE ${tableName(sourceTable, dialect)} ADD CONSTRAINT ${constraintName} FOREIGN KEY (${quote(sourceColumn.name, dialect)}) REFERENCES ${tableName(targetTable, dialect)} (${quote(targetColumn.name, dialect)})`;
-  if (relationship.onDelete) sql += ` ON DELETE ${relationship.onDelete}`;
-  if (relationship.onUpdate) sql += ` ON UPDATE ${relationship.onUpdate}`;
+  const delMap = mapForeignKeyAction(dialect, relationship.onDelete, 'DELETE');
+  if (delMap.clause) sql += ` ${delMap.clause}`;
+  const updMap = mapForeignKeyAction(dialect, relationship.onUpdate, 'UPDATE');
+  if (updMap.clause) sql += ` ${updMap.clause}`;
   return `${sql};`;
 }
 
@@ -339,7 +342,7 @@ export function generateMigrationSQL(diff: SchemaDiff, dialect: SQLDialect = 'po
         }
         if (
           change.changes.some((item) => item.startsWith('nullable:')) &&
-          change.newColumn.isNullable === false
+          !isColumnNullable(change.newColumn)
         ) {
           statements.push(`ALTER TABLE ${name} ALTER COLUMN ${columnName} SET NOT NULL;`);
         } else if (change.changes.some((item) => item.startsWith('nullable:'))) {

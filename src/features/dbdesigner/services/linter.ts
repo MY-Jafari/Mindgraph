@@ -1,4 +1,5 @@
 import type { DBTable, DBRelationship, SQLDialect, NamingConvention } from '@/features/projects/types';
+import { isColumnNullable } from '../dialects';
 
 export type LintSeverity = 'error' | 'warning' | 'info';
 
@@ -193,7 +194,7 @@ export function validateSchema(
       }
 
       // Nullable FK check
-      if (srcCol.isNullable) {
+      if (isColumnNullable(srcCol)) {
         issues.push({
           id: `nullable-fk-${rel.id}`,
           severity: 'info',

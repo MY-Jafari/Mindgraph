@@ -61,6 +61,17 @@ export function extractProjectBlobIds(project: Project): string[] {
   return Array.from(blobIds);
 }
 
+interface BlobBase64CacheEntry {
+  size: number;
+  base64: string;
+}
+
+const blobBase64Cache = new Map<string, BlobBase64CacheEntry>();
+
+export function clearBlobBase64Cache(): void {
+  blobBase64Cache.clear();
+}
+
 /**
  * Embeds all referenced blobs as base64 in a self-contained "blobs" map on the project.
  * Adds a size warning if total blob size exceeds ~50MB.
@@ -92,7 +103,14 @@ export async function embedReferencedBlobs(
     try {
       const record = await getter(blobId);
       if (record && record.data) {
-        const base64 = await blobToBase64(record.data);
+        const cached = blobBase64Cache.get(blobId);
+        let base64: string;
+        if (cached && cached.size === record.size) {
+          base64 = cached.base64;
+        } else {
+          base64 = await blobToBase64(record.data);
+          blobBase64Cache.set(blobId, { size: record.size, base64 });
+        }
         blobsMap[blobId] = {
           id: record.id,
           name: record.name,

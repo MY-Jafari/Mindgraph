@@ -261,7 +261,7 @@ export const ProjectSchema = z.object({
 /**
  * Validates and migrates raw JSON data to the current project schema version.
  */
-export function migrateProject(rawData: unknown): Project {
+export function migrateProject(rawData: unknown, warningsOut?: string[]): Project {
   if (typeof rawData !== 'object' || rawData === null) {
     throw new Error('Invalid project file: expected a JSON object');
   }
@@ -303,6 +303,133 @@ export function migrateProject(rawData: unknown): Project {
     migrated.documents = migrated.documents.map((doc) => {
       if (!doc || typeof doc !== 'object') return doc;
       return { ...(doc as Record<string, unknown>), projectId };
+    });
+  }
+
+  // Self-healing repair for dangling database references (D3 defect repair)
+  if (Array.isArray(migrated.documents)) {
+    migrated.documents = migrated.documents.map((doc) => {
+      if (!doc || typeof doc !== 'object') return doc;
+      const docObj = doc as Record<string, unknown>;
+      if (!docObj.content || typeof docObj.content !== 'object') return doc;
+      const content = { ...(docObj.content as Record<string, unknown>) };
+
+      if (Array.isArray(content.tables)) {
+        const tableIds = new Set<string>();
+        const columnIdsByTable = new Map<string, Set<string>>();
+
+        content.tables = content.tables.map((tableRaw) => {
+          if (!tableRaw || typeof tableRaw !== 'object') return tableRaw;
+          const table = { ...(tableRaw as Record<string, unknown>) };
+          const tableId = typeof table.id === 'string' ? table.id : '';
+          const tableName = typeof table.name === 'string' ? table.name : 'unnamed';
+          tableIds.add(tableId);
+
+          const columns = Array.isArray(table.columns) ? table.columns : [];
+          const colNames = new Set(
+            columns
+              .filter((c) => c && typeof c === 'object' && typeof (c as Record<string, unknown>).name === 'string')
+              .map((c) => (c as Record<string, unknown>).name as string)
+          );
+          const colIds = new Set(
+            columns
+              .filter((c) => c && typeof c === 'object' && typeof (c as Record<string, unknown>).id === 'string')
+              .map((c) => (c as Record<string, unknown>).id as string)
+          );
+          columnIdsByTable.set(tableId, colIds);
+
+          // 1. Primary key self-healing
+          if (Array.isArray(table.primaryKey)) {
+            table.primaryKey = table.primaryKey.filter((pkCol) => {
+              if (typeof pkCol !== 'string') return false;
+              const exists = colNames.has(pkCol);
+              if (!exists) {
+                warningsOut?.push(`Repaired table "${tableName}": removed missing primary key column "${pkCol}".`);
+              }
+              return exists;
+            });
+          }
+
+          // 2. Indexes self-healing
+          if (Array.isArray(table.indexes)) {
+            table.indexes = table.indexes
+              .map((idxRaw) => {
+                if (!idxRaw || typeof idxRaw !== 'object') return idxRaw;
+                const idx = { ...(idxRaw as Record<string, unknown>) };
+                const idxName = typeof idx.name === 'string' ? idx.name : 'index';
+                const idxCols = Array.isArray(idx.columns) ? idx.columns : [];
+                const validCols = idxCols.filter((colName) => {
+                  if (typeof colName !== 'string') return false;
+                  const exists = colNames.has(colName);
+                  if (!exists) {
+                    warningsOut?.push(`Repaired index "${idxName}": removed missing column "${colName}".`);
+                  }
+                  return exists;
+                });
+                if (validCols.length === 0) {
+                  warningsOut?.push(`Repaired table "${tableName}": dropped index "${idxName}" because all its columns were missing.`);
+                  return null;
+                }
+                idx.columns = validCols;
+                return idx;
+              })
+              .filter(Boolean);
+          }
+
+          // 3. Unique constraints self-healing
+          if (Array.isArray(table.uniqueConstraints)) {
+            table.uniqueConstraints = table.uniqueConstraints
+              .map((uRaw) => {
+                if (!uRaw || typeof uRaw !== 'object') return uRaw;
+                const u = { ...(uRaw as Record<string, unknown>) };
+                const uName = typeof u.name === 'string' ? u.name : 'unique';
+                const uCols = Array.isArray(u.columns) ? u.columns : [];
+                const validCols = uCols.filter((colName) => {
+                  if (typeof colName !== 'string') return false;
+                  const exists = colNames.has(colName);
+                  if (!exists) {
+                    warningsOut?.push(`Repaired unique constraint "${uName}": removed missing column "${colName}".`);
+                  }
+                  return exists;
+                });
+                if (validCols.length === 0) {
+                  warningsOut?.push(`Repaired table "${tableName}": dropped unique constraint "${uName}" because all its columns were missing.`);
+                  return null;
+                }
+                u.columns = validCols;
+                return u;
+              })
+              .filter(Boolean);
+          }
+
+          return table;
+        });
+
+        // 4. Relationships self-healing
+        if (Array.isArray(content.relationships)) {
+          content.relationships = content.relationships.filter((relRaw) => {
+            if (!relRaw || typeof relRaw !== 'object') return true;
+            const rel = relRaw as Record<string, unknown>;
+            const srcTbl = String(rel.sourceTableId || '');
+            const tgtTbl = String(rel.targetTableId || '');
+            const srcCol = String(rel.sourceColumnId || '');
+            const tgtCol = String(rel.targetColumnId || '');
+
+            if (!tableIds.has(srcTbl) || !tableIds.has(tgtTbl)) {
+              warningsOut?.push(`Repaired schema: dropped relationship "${rel.id}" referencing missing table.`);
+              return false;
+            }
+            if (!columnIdsByTable.get(srcTbl)?.has(srcCol) || !columnIdsByTable.get(tgtTbl)?.has(tgtCol)) {
+              warningsOut?.push(`Repaired schema: dropped relationship "${rel.id}" referencing missing column.`);
+              return false;
+            }
+            return true;
+          });
+        }
+
+        return { ...docObj, content };
+      }
+      return doc;
     });
   }
 

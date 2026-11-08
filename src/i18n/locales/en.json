@@ -36,7 +36,15 @@
     "fitView": "Fit View",
     "backToWelcome": "Workspace Home",
     "commandPalette": "Command Palette",
-    "pressShortcut": "Press"
+    "pressShortcut": "Press",
+    "maxSnapshotsReached": "Maximum snapshot limit (100) reached.",
+    "maxTablesReached": "Maximum table limit (500) reached.",
+    "maxDocumentsReached": "Maximum document limit (200) reached.",
+    "maxNodesReached": "Maximum node limit (20,000) reached.",
+    "maxRelationshipsReached": "Maximum relationship limit (2,000) reached.",
+    "maxColumnsReached": "Maximum column limit (1,000) reached.",
+    "duplicateRelationship": "A relationship between these columns already exists.",
+    "selfRelationshipNotAllowed": "Linking a column to itself is not allowed."
   },
   "nav": {
     "projects": "Projects",

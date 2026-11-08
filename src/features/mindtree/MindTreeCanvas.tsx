@@ -87,6 +87,8 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
     addCrossLink,
     reparentNode,
     updateNodePosition,
+    recordHistory,
+    syncToProject,
     isFocusMode,
   } = useMindTreeStore();
 
@@ -173,6 +175,10 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
       });
   }, [edges, hiddenEdgeIds, focusedBranchIds, selectedEdgeIds]);
 
+  const onNodeDragStart = useCallback(() => {
+    recordHistory();
+  }, [recordHistory]);
+
   // Handle node position changes. Selection is controlled through
   // onSelectionChange so Shift/Ctrl click and box select stay in sync with
   // the store; position updates are applied by the store itself.
@@ -180,7 +186,7 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
     (changes: NodeChange[]) => {
       for (const change of changes) {
         if (change.type === 'position' && change.position && change.id) {
-          updateNodePosition(change.id, change.position);
+          updateNodePosition(change.id, change.position, false);
         }
       }
     },
@@ -228,9 +234,11 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
       );
       if (targetParent) {
         reparentNode(node.id, targetParent.id);
+      } else {
+        syncToProject();
       }
     },
-    [getIntersectingNodes, reparentNode]
+    [getIntersectingNodes, reparentNode, syncToProject]
   );
 
   // Global Keyboard shortcuts handler
@@ -401,6 +409,7 @@ function InnerMindTreeCanvas({ document }: MindTreeCanvasProps) {
           onEdgesChange={onEdgesChange}
           onSelectionChange={onSelectionChange}
           onConnect={onConnect}
+          onNodeDragStart={onNodeDragStart}
           onNodeDragStop={onNodeDragStop as unknown as Parameters<typeof ReactFlow>[0]['onNodeDragStop']}
           onPaneClick={() => {
             setSelectedNodes([]);

@@ -64,6 +64,8 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
     duplicateTable,
     undo,
     redo,
+    recordHistory,
+    syncToProject,
   } = useDBDesignerStore();
 
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -155,6 +157,14 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
     });
   }, [relationships, tables, selectedRelationshipId]);
 
+  const onNodeDragStart = useCallback(() => {
+    recordHistory();
+  }, [recordHistory]);
+
+  const onNodeDragStop = useCallback(() => {
+    syncToProject();
+  }, [syncToProject]);
+
   // Handle position changes for tables, areas, and notes
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => {
@@ -165,7 +175,7 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
       for (const change of changes) {
         if (change.type === 'position' && change.position && change.id) {
           if (tableIds.has(change.id)) {
-            updateTablePosition(change.id, change.position);
+            updateTablePosition(change.id, change.position, false);
           } else if (areaIds.has(change.id)) {
             updateArea(change.id, { position: change.position });
           } else if (noteIds.has(change.id)) {
@@ -295,6 +305,8 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
     duplicateTable,
     undo,
     redo,
+    recordHistory,
+    syncToProject,
   ]);
 
   const content = document.content as DBSchemaContent | undefined;
@@ -312,6 +324,8 @@ function InnerDBSchemaCanvas({ document }: DBSchemaCanvasProps) {
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onConnect={onConnect}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDragStop={onNodeDragStop}
         onNodeClick={(_e, node) => {
           setSelectedRelationship(null);
           if (node.id.startsWith('tbl-')) setSelectedTable(node.id);
