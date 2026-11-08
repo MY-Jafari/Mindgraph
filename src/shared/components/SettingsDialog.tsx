@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Settings, Shield, Globe, Database, Type, Check } from 'lucide-react';
+import { Settings, Shield, Globe, Database, Type, Check, Info } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -153,6 +153,20 @@ export function SettingsDialog() {
                   <option value="PascalCase">PascalCase (e.g. UserId)</option>
                 </select>
               </div>
+            </div>
+          </div>
+
+          {/* Section 3: About Application */}
+          <div className="space-y-3 pt-2 border-t border-border">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Info className="w-3.5 h-3.5" />
+              <span>{t('settings.about', 'About Mindgraph')}</span>
+            </h4>
+            <div className="flex items-center justify-between p-3 rounded-lg border border-border/80 bg-muted/20 text-xs">
+              <span className="text-muted-foreground">{t('settings.version', 'Version')}</span>
+              <span className="font-mono font-semibold text-foreground">
+                v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0'}
+              </span>
             </div>
           </div>
         </div>

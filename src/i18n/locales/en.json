@@ -192,5 +192,18 @@
   "dbschema": {
     "placeholder": "Database Schema Designer",
     "placeholderSub": "Ready for visual table modeling, foreign keys, and DDL generation."
+  },
+  "settings": {
+    "title": "Application Settings",
+    "description": "Configure global preferences, link preview integrations, and database defaults.",
+    "linkPreviews": "Link Previews & Privacy",
+    "disablePreviews": "Disable Third-Party Link Previews",
+    "privacyNote": "Privacy Note: Disables all external network requests to third-party preview services (Microlink, YouTube, Google Favicons). Only local domain names will be shown to ensure strict offline privacy.",
+    "providerUrl": "Link Preview Provider URL",
+    "databaseDefaults": "Database Schema Defaults",
+    "defaultDialect": "Default SQL Dialect",
+    "namingConvention": "Naming Convention",
+    "about": "About Mindgraph",
+    "version": "Version"
   }
 }

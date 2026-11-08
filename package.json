@@ -2,10 +2,18 @@
   "name": "mindgraph",
   "private": true,
   "version": "1.0.0",
+  "description": "Personal Mind Tree & Database Schema Designer",
+  "author": "MY-Jafari",
+  "homepage": "https://github.com/MY-Jafari/Mindgraph",
+  "license": "Apache-2.0",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:desktop": "tsc && vite build --mode desktop",
+    "desktop:dev": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "desktop:pack": "npm run build:desktop && electron-builder --win --publish never",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
