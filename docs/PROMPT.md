@@ -28,16 +28,16 @@ The app is for a single personal user (no accounts, no backend). It must feel fa
 ## Tech stack (use exactly this unless something is impossible)
 - **Vite + React 18 + TypeScript (strict)**
 - **Canvas engine: `@xyflow/react` (React Flow v12)** for both tools (custom nodes, custom edges, minimap, controls, snapping, grouping)
-- **State: Zustand** (+ `immer`, + `zundo` for undo/redo history)
-- **Persistence: Dexie (IndexedDB)** for autosave + File System Access API for project files (fallback to download/upload)
+- **State: Zustand** (custom immutable state updates & history snapshots)
+- **Persistence: Dexie (IndexedDB)** for autosave + File System Access API / Desktop fileService for project files
 - **Styling: Tailwind CSS + shadcn/ui + Radix primitives + Framer Motion** for micro-animations
 - **Icons: lucide-react**
 - **i18n: i18next + react-i18next**, languages `fa` and `en`, with full **RTL/LTR switching** (use CSS logical properties: `ms-*`, `me-*`, `ps-*`, `pe-*`, `start/end`; never hardcode left/right in layout). Persian font: **Vazirmatn**; English: Inter. Switching language must flip direction instantly without reload and remember the choice.
-- **PWA: `vite-plugin-pwa`** (installable, offline-capable, app icons, manifest with fa/en names, update prompt)
+- **PWA / Desktop:** `vite-plugin-pwa` for web PWA; Electron + `electron-builder` + `electron-updater` for native Windows installer
 - **Export libs:** `html-to-image` (PNG/SVG/JPG), `jspdf` (PDF), `jszip` (multi-file export)
-- **SQL tooling:** `sql-formatter`, a custom DDL generator, and a lightweight SQL/DBML parser for import (use `@dbml/core` for DBML)
+- **SQL tooling:** custom lightweight SQL/DBML parser for import and custom dialect DDL generator
 - **Rich text in nodes:** TipTap (minimal: bold, italic, lists, links, code)
-- **Auto layout:** `elkjs` (or `dagre`) for auto-arranging both trees and ER diagrams
+- **Auto layout:** `@dagrejs/dagre` for auto-arranging both trees and ER diagrams
 - **Testing:** Vitest for core logic (DDL generation, importers, serializers)
 
 ## Global architecture rules

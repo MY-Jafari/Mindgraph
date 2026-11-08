@@ -188,23 +188,71 @@ npm run build
 ```
 The production bundle with precached PWA service worker will be generated in `dist/`.
 
-### Windows Desktop App
+### Windows Desktop Application
 
-Mindgraph is also available as a native Windows application with auto-updating and local-first persistence.
+Mindgraph is available as a native Windows desktop application (`Mindgraph-Setup-<version>.exe`) with automated GitHub Releases, background auto-updates, and local-first data persistence.
 
-#### Run Desktop in Development
-```bash
-npm run desktop:dev
-```
+#### Local Development & Building
+- **Run in Development**:
+  ```bash
+  npm run desktop:dev
+  ```
+- **Package Local Installer**:
+  ```bash
+  npm run desktop:pack
+  ```
+  Generates `release/Mindgraph-Setup-<version>.exe`, `latest.yml`, and blockmap files.
 
-#### Build Desktop Installer
-```bash
-npm run desktop:pack
-```
-This generates `release/Mindgraph-Setup-<version>.exe`, `latest.yml`, and blockmap files.
+#### Versioning Strategy
+- Version strings follow the pattern `<major>.<minor>.<github.run_number>` (e.g. `1.0.42`).
+- The base `<major>.<minor>` is sourced from `package.json`, while the patch number is supplied by the monotonically increasing GitHub Actions run number. This guarantees strict linear updates for `electron-updater` without creating churn or tag conflicts in Git.
+
+#### User Data & Storage Architecture
+- **Data Folder**: `%APPDATA%\Mindgraph`
+- **IndexedDB Origin**: Bound permanently to `app://mindgraph` (preventing data loss or isolation issues).
+- **Daily Automatic Backups**: Full ZIP snapshots stored in `%APPDATA%\Mindgraph\backups` (maintains the 7 newest backups).
+- **Desktop File Linking**: Opened `.mindgraph.json` files keep their absolute path linked in Dexie, allowing instant `Ctrl+S` direct saving with atomic tmp-fsync-rename writes.
+
+#### Auto-Updates & Rollbacks
+- **Auto-Update**: Powered by `electron-updater`. The application checks for updates silently in the background on startup (or via **Check for updates** in Settings), downloads differential blockmaps, and prompts the user with an in-app banner to restart.
+- **Rollback Safety**: To roll back to an older version, simply download and run the installer of the previous release. The installer replaces application binaries while **strictly preserving all user projects and databases** (`deleteAppDataOnUninstall: false`).
 
 #### Windows SmartScreen & Code Signing Note
 Unsigned Windows installers may trigger a Microsoft Defender SmartScreen prompt ("Windows protected your PC").
 - To install: click **"More info"** and then **"Run anyway"**.
-- **Code Signing**: If `CSC_LINK` and `CSC_KEY_PASSWORD` environment variables are configured, `electron-builder` will sign the installer and binary. Builds succeed gracefully without code signing when these are not provided.
-- **Data Safety**: Uninstalling the app removes binaries but **keeps all user data intact** in `%APPDATA%\Mindgraph`.
+- **Code Signing**: If `CSC_LINK` and `CSC_KEY_PASSWORD` environment variables are configured in CI secrets, `electron-builder` signs the installer and binaries. Builds succeed gracefully without signing when these are omitted.
+
+---
+
+### برنامه دسکتاپ ویندوز (فارسی)
+
+مایندگراف به عنوان یک برنامه نیتیو ویندوز با نصاب اختصاصی (`Mindgraph-Setup-<version>.exe`)، بروزرسانی خودکار و ذخیره‌سازی محلی در دسترس است.
+
+#### اجرای محلی و ساخت نصاب
+- **اجرا در محیط توسعه:**
+  ```bash
+  npm run desktop:dev
+  ```
+- **تولید بسته نصبی ویندوز:**
+  ```bash
+  npm run desktop:pack
+  ```
+  فایل‌های خروجی در پوشه `release/` شامل نصاب، `latest.yml` و فایل‌های blockmap تولید می‌شوند.
+
+#### استراتژی نسخه‌گذاری
+- ساختار نسخه به صورت `<major>.<minor>.<github.run_number>` (مانند `1.0.42`) تولید می‌شود. بخش پایه از `package.json` خوانده شده و شماره ساخت اکشن گیت‌هاب تضمین می‌کند شماره نسخه همواره صعودی باشد تا `electron-updater` بروزرسانی‌ها را به درستی تشخیص دهد.
+
+#### محل ذخیره داده‌ها و امنیت اطلاعات
+- **پوشه داده‌های کاربر:** `%APPDATA%\Mindgraph`
+- **مبدأ پایگاه داده (IndexedDB Origin):** مقید به پروتکل امن `app://mindgraph` به صورت دائمی.
+- **پشتیبان‌گیری خودکار روزانه:** ذخیره فایل کامل ZIP در مسیر `%APPDATA%\Mindgraph\backups` (نگهداری ۷ نسخه آخر به صورت خودکار).
+- **ذخیره مستقیم روی فایل:** پروژه‌های بازشده مسیر فایل خود را به خاطر سپرده و با کلید میانبر `Ctrl+S` به صورت اتمیک و امن بر روی دیسک ذخیره می‌شوند.
+
+#### بروزرسانی و بازگشت به نسخه‌های قبل (Rollback)
+- **بروزرسانی خودکار:** در زمان باز شدن برنامه (و یا دکمه «بررسی بروزرسانی» در تنظیمات)، برنامه بسته‌های تفاضلی را در پس‌زمینه دریافت کرده و بنر نصب را نمایش می‌دهد.
+- **بازگشت به نسخه قبل:** نصب دستی هر نسخه قدیمی‌تر تنها با اجرای فایل نصبی آن امکان‌پذیر است؛ فایل‌های نصاب ویندوز تنظیم شده‌اند تا داده‌های کاربر (`deleteAppDataOnUninstall: false`) هرگز حذف نشوند.
+
+#### نکته امنیتی SmartScreen و امضای دیجیتال
+نصاب‌های بدون امضای تجاری ممکن است پیام SmartScreen ویندوز ("Windows protected your PC") را نشان دهند:
+- برای نصب کافیست روی **"More info"** و سپس **"Run anyway"** کلیک کنید.
+- با تعریف سکرت‌های `CSC_LINK` و `CSC_KEY_PASSWORD` در اکشن گیت‌هاب، نصاب به صورت رسمی امضا می‌شود؛ بدون این مقادیر بیلد بدون مشکل و به صورت خودکار نسخه استاندارد تولید می‌کند.
