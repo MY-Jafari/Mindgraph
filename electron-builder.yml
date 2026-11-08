@@ -1,0 +1,30 @@
+appId: com.myjafari.mindgraph
+productName: Mindgraph
+copyright: Copyright (c) MY-Jafari
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - electron/**
+  - package.json
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Mindgraph
+  deleteAppDataOnUninstall: false
+  artifactName: Mindgraph-Setup-${version}.exe
+publish:
+  provider: github
+  owner: MY-Jafari
+  repo: Mindgraph
+  releaseType: release

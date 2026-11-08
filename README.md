@@ -187,3 +187,24 @@ npm test
 npm run build
 ```
 The production bundle with precached PWA service worker will be generated in `dist/`.
+
+### Windows Desktop App
+
+Mindgraph is also available as a native Windows application with auto-updating and local-first persistence.
+
+#### Run Desktop in Development
+```bash
+npm run desktop:dev
+```
+
+#### Build Desktop Installer
+```bash
+npm run desktop:pack
+```
+This generates `release/Mindgraph-Setup-<version>.exe`, `latest.yml`, and blockmap files.
+
+#### Windows SmartScreen & Code Signing Note
+Unsigned Windows installers may trigger a Microsoft Defender SmartScreen prompt ("Windows protected your PC").
+- To install: click **"More info"** and then **"Run anyway"**.
+- **Code Signing**: If `CSC_LINK` and `CSC_KEY_PASSWORD` environment variables are configured, `electron-builder` will sign the installer and binary. Builds succeed gracefully without code signing when these are not provided.
+- **Data Safety**: Uninstalling the app removes binaries but **keeps all user data intact** in `%APPDATA%\Mindgraph`.

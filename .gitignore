@@ -55,6 +55,8 @@ out
 # Production build outputs
 dist/
 dist-ssr/
+release/
+release-build/
 
 # Nuxt.js build / generate output
 .nuxt
