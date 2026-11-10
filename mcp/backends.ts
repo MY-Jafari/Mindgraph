@@ -299,7 +299,10 @@ export function createFileBackend(workspaceRoots?: string[] | string): ProjectBa
 
       // Save automatic agent: snapshot
       const snapshotName = `agent: ${new Date().toISOString()} ${spec.tables?.map((t) => t.name).join(', ') || 'schema update'}`;
-      coreSaveSnapshot(applyRes.content, snapshotName);
+      const snapRes = coreSaveSnapshot(content, snapshotName);
+      if (snapRes.result) {
+        applyRes.content.snapshots = [...(content.snapshots || []), snapRes.result];
+      }
 
       doc.content = applyRes.content;
       project.updatedAt = new Date().toISOString();

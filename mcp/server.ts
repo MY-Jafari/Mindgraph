@@ -985,7 +985,10 @@ export function createMindgraphServer(): McpServer {
         // Take automatic pre-change snapshot
         const autoSnapName =
           snapshotName || `agent: ${new Date().toISOString()} apply_schema_spec`;
-        coreSaveSnapshot(content, autoSnapName);
+        const snapRes = coreSaveSnapshot(content, autoSnapName);
+        if (snapRes.result) {
+          applyRes.content.snapshots = [...(content.snapshots || []), snapRes.result];
+        }
 
         // Update document content
         doc.content = applyRes.content;

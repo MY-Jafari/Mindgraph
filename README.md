@@ -161,6 +161,183 @@ Sample projects are available in the [`samples/`](./samples/) directory:
 
 ---
 
+## 🤖 AI Pair-Programming via Model Context Protocol (MCP)
+
+Mindgraph features a native Model Context Protocol (MCP) server that empowers AI assistants (Claude Desktop, Cursor, Antigravity, and other MCP clients) to pair-program on database architectures.
+
+### 🌟 Live Bridge vs File Mode
+
+- **Live Bridge Mode**: When Mindgraph Desktop is running on a project and the bridge is enabled in Settings, tool calls run **inside the running desktop app** over a local named pipe (Windows) or domain socket (macOS/Linux). Entities appear on your canvas in real-time with visual pulsing highlights, and **a single Undo (Ctrl+Z) reverts the entire agent change**.
+- **File Mode**: When the desktop app is closed or working on a different project, MCP tools operate transparently on `.mindgraph.json` files on disk within your configured workspace roots (`MINDGRAPH_WORKSPACE`).
+- **Targeting Active Canvas**: Specifying `file: "@active"` always directs tools to the currently active project in the desktop app, even if the project only exists in IndexedDB without a file path.
+
+### 📦 Client Configuration
+
+#### Option 1: Zero Setup via Packaged Mindgraph Desktop (`ELECTRON_RUN_AS_NODE=1`)
+No Node.js runtime installation needed. The installed Windows desktop application executes the MCP server bundle directly:
+
+```json
+{
+  "mcpServers": {
+    "mindgraph": {
+      "command": "C:\\Users\\<username>\\AppData\\Local\\Programs\\Mindgraph\\Mindgraph.exe",
+      "args": [
+        "C:\\Users\\<username>\\AppData\\Local\\Programs\\Mindgraph\\resources\\app.asar\\mcp\\dist\\mindgraph-mcp.mjs"
+      ],
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1",
+        "MINDGRAPH_WORKSPACE": "C:\\Users\\<username>\\Documents\\Mindgraph"
+      }
+    }
+  }
+}
+```
+
+#### Option 2: Standalone Node.js (CLI / Headless)
+```json
+{
+  "mcpServers": {
+    "mindgraph": {
+      "command": "node",
+      "args": [
+        "d:/project_coding/Mindgraph/mcp/dist/mindgraph-mcp.mjs"
+      ],
+      "env": {
+        "MINDGRAPH_WORKSPACE": "d:/project_coding/Mindgraph/samples"
+      }
+    }
+  }
+}
+```
+
+### 🛠️ Available MCP Tools (18 Tools)
+
+| Tool Name | Mode | Purpose |
+|---|---|---|
+| `list_projects` | Read | List all `.mindgraph.json` project files in workspace roots. |
+| `get_project` | Read | Inspect metadata, document IDs, dialects, snapshots, and design conventions. |
+| `get_schema` | Read | Get LLM-friendly view of tables, columns with types/flags, and relationships. |
+| `export_schema` | Read | Export schema to DDL SQL, DBML, Mermaid ER, Markdown Data Dictionary, Prisma, TypeORM, Django, or SQLAlchemy. |
+| `lint_schema` | Read | Diagnose missing PKs, type mismatches, and convention deviations. |
+| `diff_schema` | Read | Compare schema against named or latest `agent:` snapshot and generate migration SQL. |
+| `generate_seed_sql` | Read | Generate realistic SQL mock data INSERT statements. |
+| `get_design_guidelines` | Read | Retrieve stored project domain brief and architectural conventions. |
+| `infer_conventions` | Read | Analyze existing schema to discover naming cases, PK/FK patterns, and timestamps. |
+| `review_design` | Read | Comprehensive audit against project design guidelines and best practices. |
+| `create_project` | **Write** | Create a brand-new Mindgraph project file in workspace. |
+| `apply_schema_spec` | **Write** | Apply declarative SchemaSpec (tables, relationships, many-to-many junction tables) with automatic snapshot. |
+| `apply_operations` | **Write** | Execute fine-grained atomic operations (add/rename/delete tables, columns, indexes, relationships). |
+| `import_schema` | **Write** | Import raw SQL DDL or DBML definitions directly into a document. |
+| `auto_layout` | **Write** | Re-arrange entity positions automatically using hierarchical DAG layout. |
+| `save_snapshot` | **Write** | Capture a named historical state snapshot for milestone tracking and diffing. |
+| `list_snapshots` | Read | List all saved snapshots with table/relationship counts and timestamps. |
+| `set_design_guidelines` | **Write** | Store architectural design rules (dialect, casing, audit timestamps, soft delete, FK rules). |
+
+*Full schema details are available in [docs/MCP.md](./docs/MCP.md).*
+
+### 💬 Worked Example Conversation
+
+**User**: *"Design a booking system for a clinic: patients, doctors, specialties, appointments, prescriptions, payments."*
+
+1. **Step 1: Check Guidelines**:
+   The agent calls `get_design_guidelines(file: "@active")` and reads the project conventions: PostgreSQL, snake_case, plural table names, UUID primary keys, and mandatory `created_at`/`updated_at` audit timestamps.
+2. **Step 2: Simulation (`dryRun: true`)**:
+   The agent calls `apply_schema_spec` with `dryRun: true`. The server returns the simulated diff, warnings, and linter validation without writing to disk or dirtying the project.
+3. **Step 3: Verification**:
+   The agent calls `lint_schema` and confirms 0 errors.
+4. **Step 4: Live Application**:
+   The agent calls `apply_schema_spec(file: "@active", dryRun: false)`. The desktop app captures a pre-mutation `agent: <timestamp>` snapshot, inserts the tables, and highlights `patients`, `doctors`, `appointments`, and `prescriptions` with a pulsing ring. A toast notification appears: *"The AI applied 6 changes. Undo"*.
+5. **Step 5: Iteration & Feature Addition**:
+   The user asks: *"Add a reviews and ratings feature for doctors."*
+   The agent applies the new `doctor_reviews` entity and foreign key link. Existing tables, columns, and custom layout positions remain completely untouched.
+6. **Step 6: Migration & Export**:
+   The agent runs `diff_schema(file: "@active")` to produce the forward migration SQL (`CREATE TABLE doctor_reviews...`), and calls `export_schema(format: "ddl", dialect: "postgresql")` to deliver production DDL.
+
+### 🛡️ Safety & Security Model
+
+1. **Strict Workspace Sandboxing**: Path traversal attempts (e.g. `../../secret.json`) are blocked using canonical path verification (`SandboxViolationError`). Only files ending with `.json` or `.mindgraph.json` inside `MINDGRAPH_WORKSPACE` can be accessed.
+2. **Automated Safety Snapshots & Backups**: Every write tool captures an `agent: <timestamp>` snapshot before applying mutations. In file mode, an atomic copy (`.mindgraph.json.bak`) is preserved before rewriting.
+3. **Optimistic Concurrency Control (OCC)**: Tools accept `expectedRevision` tokens. If a concurrent user edit modified the design between the agent's read and write, the mutation is refused (`REVISION_CONFLICT`) rather than overwriting.
+4. **Local-Only Live Bridge & Browser Origin Isolation**:
+   - The desktop app uses Windows named pipes (`\\.\pipe\mindgraph-<username>`) or Unix sockets (`0600` permissions). No open TCP ports exist, making the bridge completely inaccessible to web browsers and remote hosts.
+   - Authentication requires a constant-time check (`crypto.timingSafeEqual`) against a 32-byte secret hex token regenerated on every launch.
+   - The master switch in Settings defaults to **OFF**. When enabled, the user can choose **Read only** or **Read and edit**.
+   - The first connection of each session displays a consent prompt: `"<client> wants to connect: Allow for this session / Deny"`.
+   - The emergency kill switch in the Top Bar Activity Panel disconnects all active clients immediately.
+5. **Prompt Injection Defense**: Schema comments, column descriptions, and notes authored by users are treated strictly as passive data. Server instructions forbid AI models from interpreting instructions found inside schema definitions.
+
+### 🚫 Out-of-Scope Boundaries
+
+- No GUI driving via simulated mouse clicks or screen captures (the Live Bridge replaces fragile UI automation with reliable headless calls).
+- No multi-user live cloud collaboration.
+- No direct execution of SQL on live production database servers.
+
+---
+
+## 🤖 برنامه‌نویسی دونفره با هوش مصنوعی از طریق پروتکل MCP (فارسی)
+
+مایندگراف به یک سرور داخلی بر پایه **Model Context Protocol (MCP)** مجهز است که به دستیارهای هوش مصنوعی (مانند Claude Desktop، Cursor، Antigravity و سایر کلاینت‌های MCP) اجازه می‌دهد در طراحی، اعتبارسنجی و نگهداری ساختار پایگاه‌های داده به عنوان یک همکار هوشمند در کنار شما فعالیت کنند.
+
+### 🌟 پل ارتباطی زنده در برابر حالت کار با فایل
+
+- **حالت پل زنده (Live Bridge):** هنگامی که برنامه دسکتاپ مایندگراف باز بوده و گزینه پل زنده در تنظیمات فعال باشد، دستورات ابزارها **مستقیماً در بوم باز برنامه** اجرا می‌شوند (از طریق پایپ محلی در ویندوز یا سوکت یونیکس در مک/لینوکس). جداول بلافاصله با حلقه درخشان بر روی صفحه ظاهر شده و **تنها با یک بار زدن کلید بازگردانی (Ctrl+Z) کل تغییرات اعمال‌شده توسط هوش مصنوعی لغو می‌گردد**.
+- **حالت کار مستقیم با فایل (File Mode):** در صورتی که برنامه دسکتاپ باز نباشد، ابزارها به صورت مستقل فایل‌های `.mindgraph.json` را در پوشه کاری مجاز (`MINDGRAPH_WORKSPACE`) خوانده و ویرایش می‌کنند.
+- **انتخاب بوم باز دسکتاپ:** مقدار `file: "@active"` همواره به پروژه فعال جاری در دسکتاپ اشاره می‌کند، حتی اگر این پروژه صرفاً در حافظه داخلی بوده و هنوز روی دیسک ذخیره نشده باشد.
+
+### 📦 تنظیمات اتصال کلاینت‌ها
+
+#### ۱. راه‌اندازی بدون نیاز به پیش‌نیاز (برنامه دسکتاپ نصب‌شده)
+نیازی به نصب Node.js نیست؛ بسته نصبی ویندوز قادر است سرور MCP را مستقیماً با استفاده از `ELECTRON_RUN_AS_NODE=1` اجرا کند:
+
+```json
+{
+  "mcpServers": {
+    "mindgraph": {
+      "command": "C:\\Users\\<username>\\AppData\\Local\\Programs\\Mindgraph\\Mindgraph.exe",
+      "args": [
+        "C:\\Users\\<username>\\AppData\\Local\\Programs\\Mindgraph\\resources\\app.asar\\mcp\\dist\\mindgraph-mcp.mjs"
+      ],
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1",
+        "MINDGRAPH_WORKSPACE": "C:\\Users\\<username>\\Documents\\Mindgraph"
+      }
+    }
+  }
+}
+```
+
+#### ۲. اجرا با Node.js در محیط توسعه
+```json
+{
+  "mcpServers": {
+    "mindgraph": {
+      "command": "node",
+      "args": [
+        "d:/project_coding/Mindgraph/mcp/dist/mindgraph-mcp.mjs"
+      ],
+      "env": {
+        "MINDGRAPH_WORKSPACE": "d:/project_coding/Mindgraph/samples"
+      }
+    }
+  }
+}
+```
+
+### 🛡️ معماری امنیت و مدل تهدید
+
+۱. **محدودسازی به فضای کاری (Sandbox):** تمام مسیرها دقیقاً در داخل پوشه `MINDGRAPH_WORKSPACE` بررسی می‌شوند. تلاش برای دسترسی به فایل‌های خارج از محدوده یا استفاده از پیوندهای نمادین مسدود می‌شود (`SandboxViolationError`).
+۲. **عکس‌برداری و پشتیبان‌گیری خودکار:** قبل از هر تغییر ساختار، یک عکس فوری با پیشوند `agent:` ذخیره شده و در حالت کار با فایل، یک نسخه پشتیبان `.bak` نگهداری می‌شود.
+۳. **کنترل همزمانی خوش‌بینانه (OCC):** استفاده از شناسه نسخه `expectedRevision` مانع از رونویسی اشتباه تغییرات همزمان کاربر می‌شود.
+۴. **امنیت پل محلی و عدم نفوذ از مرورگرها:** پل زنده صرفاً از پایپ‌های محلی (`\\.\pipe\mindgraph-<username>`) استفاده کرده و هیچ پورت TCP باز نمی‌کند. مرورگرها امکان دسترسی به این پایپ‌ها را ندارند. احراز هویت با توکن ۳۲ بایتی تصادفی و مقایسه زمان‌ثابت انجام می‌شود.
+۵. **دفاع در برابر تزریق پرامپت:** متون واردشده توسط کاربر صرفاً به عنوان داده خام تلقی شده و هوش مصنوعی موظف به نادیده گرفتن فرامین مخرب داخل توضیحات پایگاه داده است.
+
+### 🚫 مرزهای خارج از حیطه پروژه
+- کنترل رابط کاربری با کلیک یا تصویربرداری صفحه به دلیل ناپایداری خارج از محدوده است (پل زنده ارتباط مستقیم را فراهم می‌کند).
+- مایندگراف یک ابزار شخصی محلی است و همگام‌سازی ابری چندکاربره ندارد.
+- سرور MCP هیچ اتصالی به پایگاه‌های داده واقعی در محیط سرور برقرار نکرده و فقط ساختار را طراحی و مستندسازی می‌کند.
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites

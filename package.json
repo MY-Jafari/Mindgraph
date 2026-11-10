@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run mcp:build && vitest run",
     "mcp:build": "node mcp/build.mjs",
+    "mcp:docs": "node scripts/generate-mcp-docs.mjs",
     "mcp:dev": "node mcp/dist/mindgraph-mcp.mjs",
     "mcp:inspect": "npx @modelcontextprotocol/inspector node mcp/dist/mindgraph-mcp.mjs"
   },
