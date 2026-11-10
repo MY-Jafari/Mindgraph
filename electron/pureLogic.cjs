@@ -15,12 +15,33 @@ const APP_ORIGIN = 'app://mindgraph';
  * Returns the resolved safe path, or throws an Error if path traversal is detected.
  */
 function resolveSafeDistPath(distRoot, requestedPath) {
+  let decoded;
+  try {
+    decoded = decodeURIComponent(requestedPath || '');
+  } catch (_e) {
+    throw new Error('Forbidden: Path Traversal Detected (Malformed URL)');
+  }
+
+  // Reject NUL bytes
+  if (decoded.includes('\0')) {
+    throw new Error('Forbidden: Path Traversal Detected (NUL byte)');
+  }
+
+  // Normalize all backslashes to forward slashes for cross-platform safety
+  const normalizedSlashes = decoded.replace(/\\/g, '/');
+
+  // Check for any '..' segments (e.g. /../, /.. at end, .. at start)
+  const segments = normalizedSlashes.split('/');
+  if (segments.some(seg => seg === '..')) {
+    throw new Error('Forbidden: Path Traversal Detected (.. segment)');
+  }
+
   const normalizedDist = path.resolve(distRoot);
-  let cleanPath = decodeURIComponent(requestedPath || '');
+  let cleanPath = normalizedSlashes;
   if (!cleanPath || cleanPath === '/') {
     cleanPath = '/index.html';
   }
-  const relativePart = cleanPath.replace(/^[/\\]+/, '');
+  const relativePart = cleanPath.replace(/^\/+/, '');
   const candidate = path.resolve(normalizedDist, relativePart);
 
   // Must reside inside distRoot (or be distRoot itself)

@@ -71,16 +71,45 @@ describe('Phase 3: Electron Shell Pure Logic & File Service', () => {
       fs.mkdirSync(mockDist, { recursive: true });
       fs.writeFileSync(path.join(mockDist, 'index.html'), '<html></html>');
 
+      // Forward slash traversal
       expect(() => {
         resolveSafeDistPath(mockDist, '/../../package.json');
       }).toThrow('Path Traversal');
 
+      // Backslash traversal (Windows-style, must be rejected on Linux too)
       expect(() => {
         resolveSafeDistPath(mockDist, '/..\\..\\windows\\win.ini');
       }).toThrow('Path Traversal');
 
       expect(() => {
         resolveSafeDistPath(mockDist, '../secret.txt');
+      }).toThrow('Path Traversal');
+
+      expect(() => {
+        resolveSafeDistPath(mockDist, '..\\secret.txt');
+      }).toThrow('Path Traversal');
+
+      // URL-encoded slashes and dots
+      expect(() => {
+        resolveSafeDistPath(mockDist, '/..%2f..%2fpackage.json');
+      }).toThrow('Path Traversal');
+
+      expect(() => {
+        resolveSafeDistPath(mockDist, '/%2e%2e/%2e%2e/package.json');
+      }).toThrow('Path Traversal');
+
+      // NUL byte attempts
+      expect(() => {
+        resolveSafeDistPath(mockDist, '/index.html\0malicious');
+      }).toThrow('Path Traversal');
+
+      expect(() => {
+        resolveSafeDistPath(mockDist, '/%00index.html');
+      }).toThrow('Path Traversal');
+
+      // Malformed percent-encoding
+      expect(() => {
+        resolveSafeDistPath(mockDist, '/%E0%A4%A');
       }).toThrow('Path Traversal');
     });
 

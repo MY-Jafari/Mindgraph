@@ -9,8 +9,12 @@ permissions:
 
 jobs:
   validate:
-    name: Lint, Test, and Build
-    runs-on: ubuntu-latest
+    name: Lint, Test, and Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout repository
         # Pin: actions/checkout v4 (major version)

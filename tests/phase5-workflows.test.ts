@@ -24,6 +24,10 @@ describe('Phase 5: GitHub Actions Workflows Validation', () => {
     expect(content).toContain('npm run build');
     expect(content).toContain('npm run build:desktop');
 
+    // Matrix with ubuntu-latest and windows-latest
+    expect(content).toContain('ubuntu-latest');
+    expect(content).toContain('windows-latest');
+
     // Action version pins
     expect(content).toContain('actions/checkout@v4');
     expect(content).toContain('actions/setup-node@v4');
