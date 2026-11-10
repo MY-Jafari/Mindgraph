@@ -1,5 +1,29 @@
 import { create } from 'zustand';
 import { notify } from '@/shared/stores/toastStore';
+import {
+  coreAddTable,
+  coreUpdateTable,
+  coreDeleteTable,
+  coreDuplicateTable,
+  coreAddColumn,
+  coreUpdateColumn,
+  coreDeleteColumn,
+  coreReorderColumns,
+  coreAddIndex,
+  coreDeleteIndex,
+  coreAddRelationship,
+  coreUpdateRelationship,
+  coreDeleteRelationship,
+  coreAddArea,
+  coreUpdateArea,
+  coreDeleteArea,
+  coreAddNote,
+  coreUpdateNote,
+  coreDeleteNote,
+  coreSaveSnapshot,
+  coreDeleteSnapshot,
+  coreApplyAutoLayout,
+} from '@/core';
 import type {
   DBTable,
   DBColumn,
@@ -15,8 +39,19 @@ import type {
   Viewport,
 } from '../projects/types';
 import { getDefaultPrimaryKeyType, getTimestampConfigForDialect } from './dialects';
-import { calculateERLayout } from './layout';
 import { useProjectStore } from '../projects/projectStore';
+
+function getCurrentContent(state: DBDesignerState): DBSchemaContent {
+  return {
+    tables: state.tables,
+    relationships: state.relationships,
+    areas: state.areas,
+    notes: state.notes,
+    dialect: state.dialect,
+    viewport: state.viewport,
+    snapshots: state.snapshots,
+  };
+}
 
 interface HistorySnapshot {
   tables: DBTable[];
@@ -241,166 +276,91 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   setSnapToGrid: (snap) => set({ isSnapToGrid: snap }),
 
   saveSnapshot: (name) => {
-    const { tables, relationships, snapshots } = get();
-    if (snapshots.length >= 100) {
+    const state = get();
+    const op = coreSaveSnapshot(getCurrentContent(state), name);
+    if (op.error === 'LIMIT_SNAPSHOTS') {
       notify({ kind: 'warning', messageKey: 'limits.snapshots', params: { cap: 100 } });
       console.warn('Maximum snapshots limit (100) reached.');
       return null as unknown as DBSchemaSnapshot;
     }
-    const snapshot: DBSchemaSnapshot = {
-      id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      name: name.trim() || `v${snapshots.length + 1} Snapshot`,
-      timestamp: new Date().toISOString(),
-      tables: JSON.parse(JSON.stringify(tables)),
-      relationships: JSON.parse(JSON.stringify(relationships)),
-    };
-    set({ snapshots: [...snapshots, snapshot] });
-    get().syncToProject();
-    return snapshot;
+    if (op.result) {
+      set({ snapshots: op.content.snapshots || [] });
+      get().syncToProject();
+      return op.result;
+    }
+    return null as unknown as DBSchemaSnapshot;
   },
 
   deleteSnapshot: (id) => {
-    set((state) => ({
-      snapshots: state.snapshots.filter((snapshot) => snapshot.id !== id),
-    }));
+    const state = get();
+    const op = coreDeleteSnapshot(getCurrentContent(state), id);
+    set({ snapshots: op.content.snapshots || [] });
     get().syncToProject();
   },
 
   addTable: (name, pos) => {
-    const { tables, dialect } = get();
-    if (tables.length >= 500) {
+    const state = get();
+    const pkType = getDefaultPrimaryKeyType(state.dialect);
+    const op = coreAddTable(getCurrentContent(state), name, pos, '#6366f1', '', pkType);
+    if (op.error === 'LIMIT_TABLES') {
       notify({ kind: 'warning', messageKey: 'limits.tables', params: { cap: 500 } });
       console.warn('Maximum tables limit (500) reached.');
       return null as unknown as DBTable;
     }
-    get().recordHistory();
-    const tableId = `tbl-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const tableName = name || `table_${tables.length + 1}`;
-
-    const defaultPosition = pos || {
-      x: 100 + (tables.length % 4) * 320,
-      y: 100 + Math.floor(tables.length / 4) * 260,
-    };
-
-    const newTable: DBTable = {
-      id: tableId,
-      name: tableName,
-      color: '#6366f1',
-      position: defaultPosition,
-      columns: [
-        {
-          id: `col-id-${Date.now()}`,
-          name: 'id',
-          type: getDefaultPrimaryKeyType(dialect),
-          isPrimaryKey: true,
-          isNullable: false,
-        },
-      ],
-      indexes: [],
-    };
-
-    set({
-      tables: [...tables, newTable],
-      selectedTableId: tableId,
-    });
-
-    get().syncToProject();
-    return newTable;
+    if (op.result) {
+      get().recordHistory();
+      set({
+        tables: op.content.tables,
+        selectedTableId: op.result.id,
+      });
+      get().syncToProject();
+      return op.result;
+    }
+    return null as unknown as DBTable;
   },
 
   updateTable: (tableId, patch) => {
     get().recordHistory();
-    set((state) => ({
-      tables: state.tables.map((t) => (t.id === tableId ? { ...t, ...patch } : t)),
-    }));
-    get().syncToProject();
+    const state = get();
+    const op = coreUpdateTable(getCurrentContent(state), tableId, patch);
+    if (op.result) {
+      set({ tables: op.content.tables });
+      get().syncToProject();
+    }
   },
 
   deleteTable: (tableId) => {
     get().recordHistory();
-    set((state) => {
-      const remainingTables = state.tables.filter((t) => t.id !== tableId);
-      const remainingRelationships = state.relationships.filter(
-        (r) => r.sourceTableId !== tableId && r.targetTableId !== tableId
-      );
-
-      // Clean up orphaned FK flags on remaining tables
-      const sanitizedTables = remainingTables.map((t) => ({
-        ...t,
-        columns: t.columns.map((c) => {
-          if (!c.isForeignKey) return c;
-          const isStillFk = remainingRelationships.some(
-            (r) => r.sourceTableId === t.id && r.sourceColumnId === c.id
-          );
-          return isStillFk ? c : { ...c, isForeignKey: false };
-        }),
-      }));
-
-      return {
-        tables: sanitizedTables,
-        relationships: remainingRelationships,
-        selectedTableId: null,
-      };
-    });
-    get().syncToProject();
+    const state = get();
+    const op = coreDeleteTable(getCurrentContent(state), tableId);
+    if (op.result) {
+      set({
+        tables: op.content.tables,
+        relationships: op.content.relationships,
+        selectedTableId: state.selectedTableId === tableId ? null : state.selectedTableId,
+      });
+      get().syncToProject();
+    }
   },
 
   duplicateTable: (tableId) => {
-    const { tables } = get();
-    if (tables.length >= 500) {
+    const state = get();
+    const op = coreDuplicateTable(getCurrentContent(state), tableId);
+    if (op.error === 'LIMIT_TABLES') {
       notify({ kind: 'warning', messageKey: 'limits.tables', params: { cap: 500 } });
       console.warn('Maximum tables limit (500) reached.');
       return null;
     }
-    const original = tables.find((t) => t.id === tableId);
-    if (!original) return null;
-
-    get().recordHistory();
-    const newId = `tbl-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-    const clonedColumns = original.columns.map((col) => ({
-      ...col,
-      id: `col-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      isForeignKey: false,
-    }));
-
-    const clonedIndexes = (original.indexes || []).map((idx, i) => ({
-      ...idx,
-      id: `idx-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
-      name: `${idx.name}_copy`,
-    }));
-
-    const clonedUnique = (original.uniqueConstraints || []).map((u, i) => ({
-      ...u,
-      id: `uq-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
-      name: u.name ? `${u.name}_copy` : undefined,
-    }));
-
-    const clonedChecks = (original.checkConstraints || []).map((c, i) => ({
-      ...c,
-      id: `chk-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 6)}`,
-      name: c.name ? `${c.name}_copy` : undefined,
-    }));
-
-    const duplicated: DBTable = {
-      ...original,
-      id: newId,
-      name: `${original.name}_copy`,
-      position: {
-        x: original.position.x + 40,
-        y: original.position.y + 40,
-      },
-      columns: clonedColumns,
-      indexes: clonedIndexes,
-      uniqueConstraints: clonedUnique,
-      checkConstraints: clonedChecks,
-    };
-
-    set({
-      tables: [...tables, duplicated],
-      selectedTableId: newId,
-    });
-    get().syncToProject();
-    return duplicated;
+    if (op.result) {
+      get().recordHistory();
+      set({
+        tables: op.content.tables,
+        selectedTableId: op.result.id,
+      });
+      get().syncToProject();
+      return op.result;
+    }
+    return null;
   },
 
   updateTablePosition: (tableId, position, sync = true) => {
@@ -486,359 +446,204 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
 
   addColumn: (tableId, col) => {
     get().recordHistory();
-    const { tables } = get();
-    const newCol: DBColumn = {
-      id: `col-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      name: col?.name || `column_${Date.now().toString().slice(-4)}`,
-      type: col?.type || 'varchar(255)',
-      isPrimaryKey: Boolean(col?.isPrimaryKey),
-      isForeignKey: Boolean(col?.isForeignKey),
-      isUnique: Boolean(col?.isUnique),
-      isNullable: col?.isNullable !== undefined ? col.isNullable : true,
-      defaultValue: col?.defaultValue,
-      ...col,
-    };
-
+    const op = coreAddColumn(getCurrentContent(get()), tableId, col as Partial<DBColumn>);
+    if (op.error || !op.result) {
+      return {} as DBColumn;
+    }
     set({
-      tables: tables.map((t) => (t.id === tableId ? { ...t, columns: [...t.columns, newCol] } : t)),
+      tables: op.content.tables,
     });
     get().syncToProject();
-    return newCol;
+    return op.result;
   },
 
   updateColumn: (tableId, columnId, patch) => {
     get().recordHistory();
-    set((state) => ({
-      tables: state.tables.map((t) => {
-        if (t.id !== tableId) return t;
-        const oldCol = t.columns.find((c) => c.id === columnId);
-        const oldName = oldCol?.name;
-        const newName = patch.name;
-
-        const updatedCols = t.columns.map((c) => (c.id === columnId ? { ...c, ...patch } : c));
-
-        if (!oldName || !newName || oldName === newName) {
-          return { ...t, columns: updatedCols };
-        }
-
-        const updatedPk = (t.primaryKey || []).map((n) => (n === oldName ? newName : n));
-        const updatedIndexes = (t.indexes || []).map((idx) => ({
-          ...idx,
-          columns: idx.columns.map((n) => (n === oldName ? newName : n)),
-        }));
-        const updatedUnique = (t.uniqueConstraints || []).map((u) => ({
-          ...u,
-          columns: u.columns.map((n) => (n === oldName ? newName : n)),
-        }));
-
-        return {
-          ...t,
-          columns: updatedCols,
-          primaryKey: updatedPk,
-          indexes: updatedIndexes,
-          uniqueConstraints: updatedUnique,
-        };
-      }),
-    }));
-    get().syncToProject();
+    const op = coreUpdateColumn(getCurrentContent(get()), tableId, columnId, patch);
+    if (!op.error) {
+      set({
+        tables: op.content.tables,
+      });
+      get().syncToProject();
+    }
   },
 
   deleteColumn: (tableId, columnId) => {
     get().recordHistory();
-    set((state) => {
-      const targetTable = state.tables.find((t) => t.id === tableId);
-      const colToDelete = targetTable?.columns.find((c) => c.id === columnId);
-      const colName = colToDelete?.name;
-
-      const remainingRelationships = state.relationships.filter(
-        (r) =>
-          !(
-            (r.sourceTableId === tableId && r.sourceColumnId === columnId) ||
-            (r.targetTableId === tableId && r.targetColumnId === columnId)
-          )
-      );
-
-      const updatedTables = state.tables.map((t) => {
-        if (t.id !== tableId) {
-          return {
-            ...t,
-            columns: t.columns.map((c) => {
-              if (!c.isForeignKey) return c;
-              const isStillFk = remainingRelationships.some(
-                (r) => r.sourceTableId === t.id && r.sourceColumnId === c.id
-              );
-              return isStillFk ? c : { ...c, isForeignKey: false };
-            }),
-          };
-        }
-
-        const remainingCols = t.columns.filter((c) => c.id !== columnId);
-
-        const remainingPk = colName
-          ? (t.primaryKey || []).filter((n) => n !== colName)
-          : (t.primaryKey || []);
-
-        const remainingIndexes = (t.indexes || [])
-          .map((idx) => ({
-            ...idx,
-            columns: colName ? idx.columns.filter((n) => n !== colName) : idx.columns,
-          }))
-          .filter((idx) => idx.columns.length > 0);
-
-        const remainingUnique = (t.uniqueConstraints || [])
-          .map((u) => ({
-            ...u,
-            columns: colName ? u.columns.filter((n) => n !== colName) : u.columns,
-          }))
-          .filter((u) => u.columns.length > 0);
-
-        return {
-          ...t,
-          columns: remainingCols.map((c) => {
-            if (!c.isForeignKey) return c;
-            const isStillFk = remainingRelationships.some(
-              (r) => r.sourceTableId === t.id && r.sourceColumnId === c.id
-            );
-            return isStillFk ? c : { ...c, isForeignKey: false };
-          }),
-          primaryKey: remainingPk,
-          indexes: remainingIndexes,
-          uniqueConstraints: remainingUnique,
-        };
+    const op = coreDeleteColumn(getCurrentContent(get()), tableId, columnId);
+    if (!op.error) {
+      set({
+        tables: op.content.tables,
+        relationships: op.content.relationships,
       });
-
-      return {
-        tables: updatedTables,
-        relationships: remainingRelationships,
-      };
-    });
-    get().syncToProject();
+      get().syncToProject();
+    }
   },
 
   reorderColumns: (tableId, startIndex, endIndex) => {
     get().recordHistory();
-    set((state) => ({
-      tables: state.tables.map((t) => {
-        if (t.id !== tableId) return t;
-        const cols = [...t.columns];
-        const [removed] = cols.splice(startIndex, 1);
-        cols.splice(endIndex, 0, removed);
-        return { ...t, columns: cols };
-      }),
-    }));
-    get().syncToProject();
+    const op = coreReorderColumns(getCurrentContent(get()), tableId, startIndex, endIndex);
+    if (!op.error) {
+      set({
+        tables: op.content.tables,
+      });
+      get().syncToProject();
+    }
   },
 
   addIndex: (tableId, index) => {
     get().recordHistory();
-    set((state) => ({
-      tables: state.tables.map((t) => {
-        if (t.id !== tableId) return t;
-        return {
-          ...t,
-          indexes: [...(t.indexes || []), index],
-        };
-      }),
-    }));
-    get().syncToProject();
+    const op = coreAddIndex(getCurrentContent(get()), tableId, index);
+    if (!op.error) {
+      set({
+        tables: op.content.tables,
+      });
+      get().syncToProject();
+    }
   },
 
   deleteIndex: (tableId, indexId) => {
     get().recordHistory();
-    set((state) => ({
-      tables: state.tables.map((t) => {
-        if (t.id !== tableId) return t;
-        return {
-          ...t,
-          indexes: (t.indexes || []).filter((idx) => idx.id !== indexId),
-        };
-      }),
-    }));
-    get().syncToProject();
+    const op = coreDeleteIndex(getCurrentContent(get()), tableId, indexId);
+    if (!op.error) {
+      set({
+        tables: op.content.tables,
+      });
+      get().syncToProject();
+    }
   },
 
   addRelationship: (sourceTableId, sourceColumnId, targetTableId, targetColumnId) => {
-    const { relationships, tables, notation } = get();
-
-    if (relationships.length >= 2000) {
-      notify({ kind: 'warning', messageKey: 'limits.relationships', params: { cap: 2000 } });
-      console.warn('Maximum relationships limit (2000) reached.');
-      return null;
-    }
-
-    if (sourceTableId === targetTableId && sourceColumnId === targetColumnId) {
-      notify({ kind: 'warning', messageKey: 'relationship.selfLink' });
-      console.warn('Cannot link a column to itself.');
-      return null;
-    }
-
-    const exists = relationships.some(
-      (r) =>
-        r.sourceTableId === sourceTableId &&
-        r.sourceColumnId === sourceColumnId &&
-        r.targetTableId === targetTableId &&
-        r.targetColumnId === targetColumnId
-    );
-    if (exists) {
-      notify({ kind: 'warning', messageKey: 'relationship.duplicate' });
-      console.warn('Relationship between these columns already exists.');
-      return null;
-    }
-
-    const srcTable = tables.find((t) => t.id === sourceTableId);
-    const srcCol = srcTable?.columns.find((c) => c.id === sourceColumnId);
-    const pkNames =
-      srcTable?.primaryKey && srcTable.primaryKey.length > 0
-        ? srcTable.primaryKey
-        : srcTable?.columns.filter((c) => c.isPrimaryKey).map((c) => c.name) || [];
-    const isSolePk = Boolean(srcCol?.name && pkNames.length === 1 && pkNames[0] === srcCol.name);
-    const isUnique = Boolean(srcCol?.isUnique || isSolePk);
-    const cardinality = isUnique ? 'one-to-one' : 'one-to-many';
-
-    get().recordHistory();
-    const relId = `rel-${sourceTableId}-${targetTableId}-${Date.now()}`;
-
-    const newRel: DBRelationship = {
-      id: relId,
+    const { notation } = get();
+    const op = coreAddRelationship(
+      getCurrentContent(get()),
       sourceTableId,
       sourceColumnId,
       targetTableId,
       targetColumnId,
-      cardinality,
-      onDelete: 'CASCADE',
-      onUpdate: 'NO ACTION',
-      notation,
-    };
+      { notation }
+    );
 
-    // Mark source column as FK
-    set((state) => ({
-      relationships: [...relationships, newRel],
-      selectedRelationshipId: relId,
-      tables: state.tables.map((t) => {
-        if (t.id !== sourceTableId) return t;
-        return {
-          ...t,
-          columns: t.columns.map((c) =>
-            c.id === sourceColumnId ? { ...c, isForeignKey: true } : c
-          ),
-        };
-      }),
-    }));
+    if (op.error) {
+      if (op.error === 'LIMIT_RELATIONSHIPS') {
+        notify({ kind: 'warning', messageKey: 'limits.relationships', params: { cap: 2000 } });
+        console.warn('Maximum relationships limit (2000) reached.');
+      } else if (op.error === 'SELF_LINK') {
+        notify({ kind: 'warning', messageKey: 'relationship.selfLink' });
+        console.warn('Cannot link a column to itself.');
+      } else if (op.error === 'DUPLICATE_RELATIONSHIP') {
+        notify({ kind: 'warning', messageKey: 'relationship.duplicate' });
+        console.warn('Relationship between these columns already exists.');
+      }
+      return null;
+    }
 
+    get().recordHistory();
+    set({
+      relationships: op.content.relationships,
+      tables: op.content.tables,
+      selectedRelationshipId: op.result?.id ?? null,
+    });
     get().syncToProject();
-    return newRel;
+    return op.result;
   },
 
   updateRelationship: (id, patch) => {
     get().recordHistory();
-    set((state) => ({
-      relationships: state.relationships.map((r) => (r.id === id ? { ...r, ...patch } : r)),
-    }));
-    get().syncToProject();
+    const op = coreUpdateRelationship(getCurrentContent(get()), id, patch);
+    if (!op.error) {
+      set({
+        relationships: op.content.relationships,
+      });
+      get().syncToProject();
+    }
   },
 
   deleteRelationship: (id) => {
     get().recordHistory();
-    const relToDelete = get().relationships.find((r) => r.id === id);
-    set((state) => {
-      const remainingRels = state.relationships.filter((r) => r.id !== id);
-      const isColStillFk =
-        relToDelete &&
-        remainingRels.some(
-          (r) =>
-            r.sourceTableId === relToDelete.sourceTableId &&
-            r.sourceColumnId === relToDelete.sourceColumnId
-        );
-
-      const updatedTables =
-        relToDelete && !isColStillFk
-          ? state.tables.map((t) => {
-              if (t.id !== relToDelete.sourceTableId) return t;
-              return {
-                ...t,
-                columns: t.columns.map((c) =>
-                  c.id === relToDelete.sourceColumnId ? { ...c, isForeignKey: false } : c
-                ),
-              };
-            })
-          : state.tables;
-
-      return {
-        relationships: remainingRels,
+    const op = coreDeleteRelationship(getCurrentContent(get()), id);
+    if (!op.error) {
+      set({
+        relationships: op.content.relationships,
+        tables: op.content.tables,
         selectedRelationshipId: null,
-        tables: updatedTables,
-      };
-    });
-    get().syncToProject();
+      });
+      get().syncToProject();
+    }
   },
 
   addArea: (name = 'Area') => {
     get().recordHistory();
-    const { areas } = get();
-    const newArea: DBArea = {
-      id: `area-${Date.now()}`,
-      name,
-      color: '#6366f1',
-      position: { x: 50, y: 50 },
-      width: 480,
-      height: 380,
-    };
-    set({ areas: [...areas, newArea] });
-    get().syncToProject();
-    return newArea;
+    const op = coreAddArea(getCurrentContent(get()), name);
+    if (op.result) {
+      set({
+        areas: op.content.areas,
+      });
+      get().syncToProject();
+    }
+    return op.result!;
   },
 
   updateArea: (id, patch) => {
-    set((state) => ({
-      areas: state.areas.map((a) => (a.id === id ? { ...a, ...patch } : a)),
-    }));
-    get().syncToProject();
+    const op = coreUpdateArea(getCurrentContent(get()), id, patch);
+    if (!op.error) {
+      set({
+        areas: op.content.areas,
+      });
+      get().syncToProject();
+    }
   },
 
   deleteArea: (id) => {
     get().recordHistory();
-    set((state) => ({
-      areas: state.areas.filter((a) => a.id !== id),
-    }));
-    get().syncToProject();
+    const op = coreDeleteArea(getCurrentContent(get()), id);
+    if (!op.error) {
+      set({
+        areas: op.content.areas,
+      });
+      get().syncToProject();
+    }
   },
 
   addNote: (content = 'Personal DB Note...') => {
     get().recordHistory();
-    const { notes } = get();
-    const newNote: DBNote = {
-      id: `note-${Date.now()}`,
-      content,
-      position: { x: 80, y: 80 },
-      color: '#fef08a',
-      width: 220,
-      height: 140,
-    };
-    set({ notes: [...notes, newNote] });
-    get().syncToProject();
-    return newNote;
+    const op = coreAddNote(getCurrentContent(get()), content);
+    if (op.result) {
+      set({
+        notes: op.content.notes,
+      });
+      get().syncToProject();
+    }
+    return op.result!;
   },
 
   updateNote: (id, patch) => {
-    set((state) => ({
-      notes: state.notes.map((n) => (n.id === id ? { ...n, ...patch } : n)),
-    }));
-    get().syncToProject();
+    const op = coreUpdateNote(getCurrentContent(get()), id, patch);
+    if (!op.error) {
+      set({
+        notes: op.content.notes,
+      });
+      get().syncToProject();
+    }
   },
 
   deleteNote: (id) => {
     get().recordHistory();
-    set((state) => ({
-      notes: state.notes.filter((n) => n.id !== id),
-    }));
-    get().syncToProject();
+    const op = coreDeleteNote(getCurrentContent(get()), id);
+    if (!op.error) {
+      set({
+        notes: op.content.notes,
+      });
+      get().syncToProject();
+    }
   },
 
   autoLayout: (direction = 'LR') => {
     get().recordHistory();
-    const { tables, relationships } = get();
-    const arranged = calculateERLayout(tables, relationships, direction);
-    set({ tables: arranged });
+    const op = coreApplyAutoLayout(getCurrentContent(get()), direction);
+    set({
+      tables: op.content.tables,
+    });
     get().syncToProject();
   },
 }));
