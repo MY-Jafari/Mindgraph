@@ -122,8 +122,10 @@ Thumbs.db
 
 # User data and project files (keep samples/)
 *.mindgraph.json
+**/*.mindgraph.json
 !samples/*.mindgraph.json
 *.bak
+**/*.bak
 *.sql
 !tests/fixtures/*.sql
 
@@ -131,5 +133,6 @@ Thumbs.db
 *prompt*.md
 *Prompt*.md
 *.prompt.md
+!docs/PROMPT.md
 scratch/
 
