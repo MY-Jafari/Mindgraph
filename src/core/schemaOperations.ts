@@ -812,3 +812,155 @@ export function coreDeleteSnapshot(
     warnings: [],
   };
 }
+
+export function findTableOrThrow(content: DBSchemaContent, tableNameOrId: string): DBTable {
+  const lower = tableNameOrId.trim().toLowerCase();
+  const found = content.tables.find(
+    (t) => t.name.toLowerCase() === lower || t.id.toLowerCase() === lower
+  );
+
+  if (!found) {
+    const tableNames = content.tables.map((t) => t.name);
+    const available = tableNames.length > 0 ? ` Available tables: ${tableNames.join(', ')}.` : '';
+    throw new Error(`Table "${tableNameOrId}" not found.${available}`);
+  }
+
+  return found;
+}
+
+export function coreApplyBatchOperations(
+  content: DBSchemaContent,
+  operations: any[]
+): { content: DBSchemaContent; warnings: string[] } {
+  let workingContent = JSON.parse(JSON.stringify(content));
+  const allWarnings: string[] = [];
+
+  for (let i = 0; i < operations.length; i++) {
+    const op = operations[i];
+    const opType = String(op.type || '').toLowerCase();
+
+    switch (opType) {
+      case 'add_table': {
+        const res = coreAddTable(
+          workingContent,
+          op.name,
+          op.position,
+          op.color,
+          op.comment,
+          op.pkType
+        );
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      case 'rename_table':
+      case 'update_table': {
+        const tbl = findTableOrThrow(workingContent, op.table || op.tableId);
+        const res = coreUpdateTable(workingContent, tbl.id, op.updates || { name: op.name });
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      case 'delete_table': {
+        const tbl = findTableOrThrow(workingContent, op.table || op.tableId);
+        const res = coreDeleteTable(workingContent, tbl.id);
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      case 'add_column': {
+        const tbl = findTableOrThrow(workingContent, op.table || op.tableId);
+        const res = coreAddColumn(workingContent, tbl.id, op.column);
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      case 'update_column': {
+        const tbl = findTableOrThrow(workingContent, op.table || op.tableId);
+        const col = tbl.columns.find(
+          (c) => c.name.toLowerCase() === String(op.column || '').toLowerCase() || c.id === op.columnId
+        );
+        if (!col) throw new Error(`Column "${op.column || op.columnId}" not found in table "${tbl.name}".`);
+        const res = coreUpdateColumn(workingContent, tbl.id, col.id, op.updates);
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      case 'delete_column': {
+        const tbl = findTableOrThrow(workingContent, op.table || op.tableId);
+        const col = tbl.columns.find(
+          (c) => c.name.toLowerCase() === String(op.column || '').toLowerCase() || c.id === op.columnId
+        );
+        if (!col) throw new Error(`Column "${op.column || op.columnId}" not found in table "${tbl.name}".`);
+        const res = coreDeleteColumn(workingContent, tbl.id, col.id);
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      case 'add_relationship': {
+        const srcTbl = findTableOrThrow(workingContent, op.fromTable);
+        const tgtTbl = findTableOrThrow(workingContent, op.toTable);
+        const srcCol = srcTbl.columns.find((c) => c.name.toLowerCase() === op.fromColumn.toLowerCase());
+        const tgtCol = tgtTbl.columns.find(
+          (c) => c.name.toLowerCase() === (op.toColumn ? op.toColumn.toLowerCase() : 'id')
+        );
+        if (!srcCol) throw new Error(`Source column "${op.fromColumn}" not found in table "${srcTbl.name}".`);
+        if (!tgtCol) throw new Error(`Target column "${op.toColumn || 'id'}" not found in table "${tgtTbl.name}".`);
+
+        const res = coreAddRelationship(
+          workingContent,
+          srcTbl.id,
+          srcCol.id,
+          tgtTbl.id,
+          tgtCol.id,
+          {
+            cardinality: op.cardinality,
+            onDelete: op.onDelete,
+            onUpdate: op.onUpdate,
+          }
+        );
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      case 'delete_relationship': {
+        const res = coreDeleteRelationship(workingContent, op.relationshipId || op.id);
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      case 'add_index': {
+        const tbl = findTableOrThrow(workingContent, op.table || op.tableId);
+        const res = coreAddIndex(workingContent, tbl.id, op.index);
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      case 'delete_index': {
+        const tbl = findTableOrThrow(workingContent, op.table || op.tableId);
+        const idx = (tbl.indexes || []).find(
+          (ix) => ix.id === op.indexId || ix.name.toLowerCase() === String(op.name || '').toLowerCase()
+        );
+        if (!idx) throw new Error(`Index "${op.indexId || op.name}" not found in table "${tbl.name}".`);
+        const res = coreDeleteIndex(workingContent, tbl.id, idx.id);
+        if (res.error) throw new Error(`Operation ${i} (${opType}) failed: ${res.error}`);
+        workingContent = res.content;
+        allWarnings.push(...res.warnings);
+        break;
+      }
+      default:
+        throw new Error(`Unsupported operation type "${opType}".`);
+    }
+  }
+
+  return { content: workingContent, warnings: allWarnings };
+}

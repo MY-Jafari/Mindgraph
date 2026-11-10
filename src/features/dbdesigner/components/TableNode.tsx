@@ -200,11 +200,14 @@ export const TableNode = React.memo(({ id, data, selected }: NodeProps) => {
     setEditingColId(null);
   };
 
+  const isHighlighted = useDBDesignerStore((s) => s.highlightedTableIds?.includes(id));
+
   return (
     <div
       className={cn(
         'group bg-card text-card-foreground rounded-2xl border border-border shadow-xl min-w-[280px] max-w-sm overflow-hidden select-none transition-all duration-150',
-        selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+        selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
+        isHighlighted && 'ring-2 ring-emerald-500 ring-offset-2 ring-offset-background shadow-2xl motion-safe:animate-pulse'
       )}
     >
       {/* Table Color Header Bar */}

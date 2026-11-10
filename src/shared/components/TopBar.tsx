@@ -20,6 +20,7 @@ import { Button } from '@/shared/components/ui/button';
 import { SaveStatusIndicator } from './SaveStatusIndicator';
 import { LanguageSelector } from './LanguageSelector';
 import { ThemeSelector } from './ThemeSelector';
+import { BridgeActivityBadge } from '@/features/bridge/components/BridgeActivityBadge';
 import { useSettingsStore } from '@/shared/stores/settingsStore';
 import { useProjectStore } from '@/features/projects/projectStore';
 import { useMindTreeStore } from '@/features/mindtree/mindTreeStore';
@@ -234,6 +235,8 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
           <Download className="h-3.5 w-3.5" />
           <span className="hidden sm:inline">{t('common.export')}</span>
         </Button>
+
+        <BridgeActivityBadge />
 
         <div className="h-4 w-px bg-border mx-1" />
 

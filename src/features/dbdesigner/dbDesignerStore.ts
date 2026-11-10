@@ -76,11 +76,19 @@ export interface DBDesignerState {
 
   past: HistorySnapshot[];
   future: HistorySnapshot[];
+  highlightedTableIds: string[];
 
   // Actions
   initDocument: (doc: Document) => void;
   syncToProject: () => void;
   recordHistory: () => void;
+  applyBatchTransaction: (fn: (currentContent: DBSchemaContent) => {
+    tables: DBTable[];
+    relationships: DBRelationship[];
+    snapshotName?: string;
+  }) => void;
+  setHighlightedTableIds: (ids: string[]) => void;
+  clearHighlightedTableIds: () => void;
   undo: () => void;
   redo: () => void;
 
@@ -151,6 +159,7 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   snapshots: [],
   past: [],
   future: [],
+  highlightedTableIds: [],
 
   initDocument: (doc) => {
     if (doc.type !== 'dbschema') return;
@@ -220,6 +229,55 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
     };
     const newPast = [...past.slice(-49), snapshot];
     set({ past: newPast, future: [] });
+  },
+
+  applyBatchTransaction: (fn) => {
+    const { tables, relationships, areas, notes, snapshots, dialect, viewport } = get();
+    get().recordHistory();
+
+    const currentContent: DBSchemaContent = {
+      tables: JSON.parse(JSON.stringify(tables)),
+      relationships: JSON.parse(JSON.stringify(relationships)),
+      areas,
+      notes,
+      snapshots,
+      dialect,
+      viewport,
+    };
+
+    const res = fn(currentContent);
+    const updatedSnapshots = [...snapshots];
+    if (res.snapshotName) {
+      updatedSnapshots.push({
+        id: `snap-${Date.now()}`,
+        name: res.snapshotName,
+        timestamp: new Date().toISOString(),
+        tables: JSON.parse(JSON.stringify(res.tables)),
+        relationships: JSON.parse(JSON.stringify(res.relationships)),
+      });
+    }
+
+    set({
+      tables: res.tables,
+      relationships: res.relationships,
+      snapshots: updatedSnapshots,
+    });
+
+    get().syncToProject();
+  },
+
+  setHighlightedTableIds: (ids: string[]) => {
+    set({ highlightedTableIds: ids });
+    setTimeout(() => {
+      const current = get().highlightedTableIds;
+      if (current.some((id) => ids.includes(id))) {
+        set({ highlightedTableIds: current.filter((id) => !ids.includes(id)) });
+      }
+    }, 3000);
+  },
+
+  clearHighlightedTableIds: () => {
+    set({ highlightedTableIds: [] });
   },
 
   undo: () => {

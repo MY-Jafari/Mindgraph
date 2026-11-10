@@ -63,14 +63,65 @@ import {
   findTableOrThrow,
   findClosestMatch,
 } from './helpers';
+import { BridgeClient } from './bridgeClient';
+import { chooseBackend, type BackendMode, type ActiveProjectMeta } from '../src/core/backend';
 
 // Redirect stdout logging to stderr to preserve pristine stdio JSON-RPC on stdout
 console.log = (...args: unknown[]) => console.error(...args);
 console.info = (...args: unknown[]) => console.error(...args);
 
+// Live Bridge Client instance
+const bridgeClient = new BridgeClient();
+
+function getEnvBridgeMode(): BackendMode {
+  const env = (process.env.MINDGRAPH_BRIDGE || 'auto').toLowerCase();
+  if (env === 'off' || env === 'require') return env;
+  return 'auto';
+}
+
+async function getActiveMeta(): Promise<ActiveProjectMeta | null> {
+  if (!bridgeClient.isConnected()) {
+    const ok = await bridgeClient.ensureConnected();
+    if (!ok) return null;
+  }
+  try {
+    const state = await bridgeClient.request('bridge.getState');
+    return {
+      projectId: state.projectId,
+      projectName: state.projectName,
+      filePath: state.filePath,
+      dialect: state.dialect,
+      revision: state.revision,
+      isDirty: state.isDirty,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function resolveRouting(file: string, isWrite: boolean) {
+  const activeMeta = await getActiveMeta();
+  const decision = chooseBackend({
+    targetFile: file,
+    bridgeAvailable: bridgeClient.isConnected(),
+    userConsent: true,
+    accessLevel: bridgeClient.getAccessLevel(),
+    activeProjectMeta: activeMeta,
+    envMode: getEnvBridgeMode(),
+    isWrite,
+  });
+
+  if (decision.error) {
+    throw new Error(decision.error);
+  }
+
+  return { isLive: decision.type === 'live', via: decision.type };
+}
+
 // Server instructions for AI agents
 const SERVER_INSTRUCTIONS = `Mindgraph Database Architect MCP:
 - File paths are relative to workspace roots specified in MINDGRAPH_WORKSPACE. Extensions must be .json or .mindgraph.json.
+- When Mindgraph Desktop is running with Live Bridge enabled, file: "@active" operates directly on the active canvas with live undo.
 - Check project design guidelines before designing (get_project or resource mindgraph://guidelines/{file}).
 - Prefer apply_schema_spec for multi-table schemas; use dryRun: true to verify changes, lint issues, and migration diffs before writing.
 - Always run lint_schema after making changes and summarize findings to the user.
@@ -99,16 +150,23 @@ export function createMindgraphServer(): McpServer {
     { readOnlyHint: true },
     async () => {
       try {
+        const activeMeta = await getActiveMeta();
         const projects = await listProjects();
+        const lines: string[] = [];
+        if (bridgeClient.isConnected() && activeMeta) {
+          lines.push(
+            `* [LIVE DESKTOP SESSION] ${activeMeta.projectName} (${activeMeta.filePath || '@active'}): dialect: ${activeMeta.dialect || 'postgresql'}, rev: ${activeMeta.revision}`
+          );
+        }
+        for (const p of projects) {
+          lines.push(
+            `- ${p.name} (${p.relativePath}): ${p.documentCount} document(s), dialects: [${p.dialects.join(', ')}], rev: ${p.revision.slice(0, 8)}`
+          );
+        }
         const text =
-          projects.length === 0
+          lines.length === 0
             ? 'No Mindgraph project files found in workspace roots.'
-            : projects
-                .map(
-                  (p) =>
-                    `- ${p.name} (${p.relativePath}): ${p.documentCount} document(s), dialects: [${p.dialects.join(', ')}], rev: ${p.revision.slice(0, 8)}`
-                )
-                .join('\n');
+            : lines.join('\n');
 
         return {
           content: [{ type: 'text', text: truncateOutput(text) }],
@@ -124,11 +182,37 @@ export function createMindgraphServer(): McpServer {
     'get_project',
     'Get metadata for a specific project file (documents, dialects, snapshots, and design guidelines status).',
     {
-      file: z.string().describe('Relative path to the project file in the workspace'),
+      file: z.string().describe('Relative path to the project file in the workspace, or "@active" for currently active project in desktop app'),
     },
     { readOnlyHint: true },
     async ({ file }) => {
       try {
+        const { isLive } = await resolveRouting(file, false);
+        if (isLive) {
+          const state = await bridgeClient.request('bridge.getState');
+          const schema = await bridgeClient.request('bridge.getSchema');
+          const guidelinesRes = await bridgeClient.request('bridge.getGuidelines');
+          const summary = {
+            via: 'live',
+            name: state.projectName,
+            revision: state.revision,
+            defaultDialect: state.dialect,
+            guidelinesPresent: !!guidelinesRes.guidelines,
+            documents: [
+              {
+                id: 'active-schema',
+                title: 'Active Database Schema',
+                type: 'dbschema',
+                dialect: state.dialect,
+                snapshots: (schema.schema.snapshots || []).map((s: any) => s.name),
+              },
+            ],
+          };
+          return {
+            content: [{ type: 'text', text: JSON.stringify(summary, null, 2) }],
+          };
+        }
+
         const { project, revision } = await readProject(file);
         const docs = project.documents.map((d) => {
           const snapshots =
@@ -153,6 +237,7 @@ export function createMindgraphServer(): McpServer {
         );
 
         const summary = {
+          via: 'file',
           name: project.name,
           revision,
           defaultDialect: project.settings.defaultDialect,
@@ -175,7 +260,7 @@ export function createMindgraphServer(): McpServer {
     'get_schema',
     'Get a compact human- and LLM-friendly view of a database schema document (tables, columns with types and flags, relationships, indexes). Supports format "summary", "dbml", or "json", and optional table filtering.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -192,8 +277,20 @@ export function createMindgraphServer(): McpServer {
     { readOnlyHint: true },
     async ({ file, document, format, tables }) => {
       try {
-        const { project } = await readProject(file);
-        const { content, doc } = resolveDBSchemaDocument(project, document);
+        const { isLive } = await resolveRouting(file, false);
+        let content: DBSchemaContent;
+        let docTitle = 'Database Schema';
+
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.getSchema', { documentId: document });
+          content = res.schema;
+          docTitle = 'Live Active Schema';
+        } else {
+          const { project } = await readProject(file);
+          const { content: fileContent, doc } = resolveDBSchemaDocument(project, document);
+          content = fileContent;
+          docTitle = doc.title;
+        }
 
         let filteredTables = content.tables;
         if (tables && tables.length > 0) {
@@ -214,6 +311,7 @@ export function createMindgraphServer(): McpServer {
               tables: filteredTables,
               relationships: filteredRelationships,
               dialect: content.dialect,
+              via: isLive ? 'live' : 'file',
             },
             null,
             2
@@ -223,7 +321,7 @@ export function createMindgraphServer(): McpServer {
         } else {
           // 'summary' format
           const lines: string[] = [
-            `Schema: "${doc.title}" | Dialect: ${content.dialect} | Tables: ${filteredTables.length}`,
+            `Schema: "${docTitle}" (${isLive ? 'LIVE' : 'FILE'}) | Dialect: ${content.dialect} | Tables: ${filteredTables.length}`,
             '',
           ];
 
@@ -279,7 +377,7 @@ export function createMindgraphServer(): McpServer {
     'export_schema',
     'Export the database schema in various formats: DDL SQL, DBML, Mermaid ER, Markdown Data Dictionary, Prisma, TypeORM, Django, or SQLAlchemy.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -308,8 +406,16 @@ export function createMindgraphServer(): McpServer {
     { readOnlyHint: true },
     async ({ file, document, format, dialect, inlineForeignKeys }) => {
       try {
-        const { project } = await readProject(file);
-        const { content } = resolveDBSchemaDocument(project, document);
+        const { isLive } = await resolveRouting(file, false);
+        let content: DBSchemaContent;
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.getSchema', { documentId: document });
+          content = res.schema;
+        } else {
+          const { project } = await readProject(file);
+          const { content: fileContent } = resolveDBSchemaDocument(project, document);
+          content = fileContent;
+        }
         const targetDialect = dialect || content.dialect || 'postgresql';
 
         let outputText = '';
@@ -361,7 +467,7 @@ export function createMindgraphServer(): McpServer {
     'lint_schema',
     'Run the schema linter on a database schema document to detect missing primary keys, type inconsistencies, naming convention issues, and structural design warnings.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -370,8 +476,16 @@ export function createMindgraphServer(): McpServer {
     { readOnlyHint: true },
     async ({ file, document }) => {
       try {
-        const { project } = await readProject(file);
-        const { content } = resolveDBSchemaDocument(project, document);
+        const { isLive } = await resolveRouting(file, false);
+        let content: DBSchemaContent;
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.getSchema', { documentId: document });
+          content = res.schema;
+        } else {
+          const { project } = await readProject(file);
+          const { content: fileContent } = resolveDBSchemaDocument(project, document);
+          content = fileContent;
+        }
         const issues = validateSchema(content.tables, content.relationships, content.dialect);
 
         const summaryText =
@@ -420,8 +534,16 @@ export function createMindgraphServer(): McpServer {
     { readOnlyHint: true },
     async ({ file, document, snapshot, dialect }) => {
       try {
-        const { project } = await readProject(file);
-        const { content } = resolveDBSchemaDocument(project, document);
+        const { isLive } = await resolveRouting(file, false);
+        let content: DBSchemaContent;
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.getSchema', { documentId: document });
+          content = res.schema;
+        } else {
+          const { project } = await readProject(file);
+          const { content: fileContent } = resolveDBSchemaDocument(project, document);
+          content = fileContent;
+        }
         const snapshots = content.snapshots || [];
 
         if (snapshots.length === 0) {
@@ -509,8 +631,16 @@ export function createMindgraphServer(): McpServer {
     { readOnlyHint: true },
     async ({ file, document, tables, rowCount }) => {
       try {
-        const { project } = await readProject(file);
-        const { content } = resolveDBSchemaDocument(project, document);
+        const { isLive } = await resolveRouting(file, false);
+        let content: DBSchemaContent;
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.getSchema', { documentId: document });
+          content = res.schema;
+        } else {
+          const { project } = await readProject(file);
+          const { content: fileContent } = resolveDBSchemaDocument(project, document);
+          content = fileContent;
+        }
 
         let targetTables = content.tables;
         if (tables && tables.length > 0) {
@@ -538,13 +668,25 @@ export function createMindgraphServer(): McpServer {
     'get_design_guidelines',
     'Get stored AI database design guidelines (domain brief, naming conventions, primary key format, audit timestamps, soft delete, FK patterns, dialect). Returns questionnaire if no guidelines are set.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
     },
     { readOnlyHint: true },
     async ({ file }) => {
       try {
-        const { project } = await readProject(file);
-        const guidelines = project.settings?.aiGuidelines;
+        const { isLive } = await resolveRouting(file, false);
+        let guidelines: AIGuidelines | null | undefined;
+        let projectName = 'Active Project';
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.getGuidelines');
+          guidelines = res.guidelines;
+          const state = await bridgeClient.request('bridge.getState');
+          projectName = state.projectName;
+        } else {
+          const { project } = await readProject(file);
+          guidelines = project.settings?.aiGuidelines;
+          projectName = project.name;
+        }
+
         const hasGuidelines = Boolean(
           guidelines && (guidelines.brief || guidelines.conventions)
         );
@@ -569,7 +711,7 @@ export function createMindgraphServer(): McpServer {
           };
         }
 
-        const prompt = formatGuidelinesAsPrompt(guidelines, project.name);
+        const prompt = formatGuidelinesAsPrompt(guidelines, projectName);
         return {
           content: [
             {
@@ -598,7 +740,7 @@ export function createMindgraphServer(): McpServer {
     'infer_conventions',
     'Analyse an existing database schema to infer design conventions (name case, plural/singular tables, primary key style, foreign key pattern, timestamps, soft delete, common types). Does not modify the project.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -607,8 +749,16 @@ export function createMindgraphServer(): McpServer {
     { readOnlyHint: true },
     async ({ file, document }) => {
       try {
-        const { project } = await readProject(file);
-        const { content } = resolveDBSchemaDocument(project, document);
+        const { isLive } = await resolveRouting(file, false);
+        let content: DBSchemaContent;
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.getSchema', { documentId: document });
+          content = res.schema;
+        } else {
+          const { project } = await readProject(file);
+          const { content: fileContent } = resolveDBSchemaDocument(project, document);
+          content = fileContent;
+        }
 
         const result = inferConventions(content);
         return {
@@ -630,7 +780,7 @@ export function createMindgraphServer(): McpServer {
     'review_design',
     'Review a database schema against the project design guidelines and standard lint rules. Returns prioritized convention deviations and lint issues with exact fixes.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -639,8 +789,20 @@ export function createMindgraphServer(): McpServer {
     { readOnlyHint: true },
     async ({ file, document }) => {
       try {
-        const { project } = await readProject(file);
-        const { content } = resolveDBSchemaDocument(project, document);
+        const { isLive } = await resolveRouting(file, false);
+        let content: DBSchemaContent;
+        let guidelines: AIGuidelines | undefined;
+        if (isLive) {
+          const sRes = await bridgeClient.request('bridge.getSchema', { documentId: document });
+          content = sRes.schema;
+          const gRes = await bridgeClient.request('bridge.getGuidelines');
+          guidelines = gRes.guidelines;
+        } else {
+          const { project } = await readProject(file);
+          const { content: fileContent } = resolveDBSchemaDocument(project, document);
+          content = fileContent;
+          guidelines = project.settings?.aiGuidelines;
+        }
 
         const lintIssues = validateSchema(
           content.tables,
@@ -649,14 +811,14 @@ export function createMindgraphServer(): McpServer {
         );
         const conventionIssues = reviewDesignConventions(
           content,
-          project.settings?.aiGuidelines
+          guidelines
         );
 
         const report = {
           hasGuidelines: Boolean(
-            project.settings?.aiGuidelines &&
-              (project.settings.aiGuidelines.brief ||
-                project.settings.aiGuidelines.conventions)
+            guidelines &&
+              (guidelines.brief ||
+                guidelines.conventions)
           ),
           lintIssuesCount: lintIssues.length,
           conventionIssuesCount: conventionIssues.length,
@@ -724,7 +886,7 @@ export function createMindgraphServer(): McpServer {
     'apply_schema_spec',
     'Apply a declarative schema specification (tables, columns, indexes, constraints, relationships, many-to-many junction tables) to a database document. Automatically creates an agent snapshot before changes.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -769,6 +931,20 @@ export function createMindgraphServer(): McpServer {
       expectedRevision,
     }) => {
       try {
+        const { isLive } = await resolveRouting(file, true);
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.applySchemaSpec', {
+            spec,
+            options: { mode, confirmReplace },
+            expectedRevision,
+            dryRun,
+            applyGuidelines,
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(res, null, 2) }],
+          };
+        }
+
         const { project, revision } = await readProject(file);
         const { content, doc } = resolveDBSchemaDocument(project, document);
 
@@ -840,7 +1016,7 @@ export function createMindgraphServer(): McpServer {
     'apply_operations',
     'Execute a batch of fine-grained atomic operations on a schema document (add_table, rename_table, delete_table, add_column, update_column, delete_column, add_relationship, delete_relationship, add_index, delete_index). Atomic all-or-nothing.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -867,6 +1043,23 @@ export function createMindgraphServer(): McpServer {
           throw new Error(
             'Batch contains destructive delete operations. Explicit confirmDestructive: true is required.'
           );
+        }
+
+        const { isLive } = await resolveRouting(file, true);
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.applyOperations', {
+            operations,
+            expectedRevision,
+            dryRun: false,
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Successfully executed ${operations.length} operation(s) via LIVE bridge. New revision: ${res.nextRevision}`,
+              },
+            ],
+          };
         }
 
         const { project } = await readProject(file);
@@ -1015,7 +1208,7 @@ export function createMindgraphServer(): McpServer {
     'import_schema',
     'Import SQL DDL or DBML text into a database schema document, merging or replacing existing tables.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -1040,6 +1233,24 @@ export function createMindgraphServer(): McpServer {
       try {
         if (mode === 'replace' && !confirmReplace) {
           throw new Error('Replace mode requires explicit confirmReplace: true.');
+        }
+
+        const { isLive } = await resolveRouting(file, true);
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.importSchema', {
+            ddl: text,
+            mode,
+            expectedRevision,
+            dryRun: false,
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Import completed via LIVE bridge (${mode} mode). Imported ${res.tablesCount} tables, ${res.relationshipsCount} relationships. Revision: ${res.nextRevision}`,
+              },
+            ],
+          };
         }
 
         const isDbml =
@@ -1114,7 +1325,7 @@ export function createMindgraphServer(): McpServer {
     'auto_layout',
     'Re-run automatic entity-relationship layout (TB or LR) on tables in a database schema document.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -1131,6 +1342,22 @@ export function createMindgraphServer(): McpServer {
     { idempotentHint: true },
     async ({ file, document, direction, expectedRevision }) => {
       try {
+        const { isLive } = await resolveRouting(file, true);
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.autoLayout', {
+            algorithm: 'dagre',
+            expectedRevision,
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Auto-layout applied (${direction} direction) via LIVE bridge. Revision: ${res.nextRevision}`,
+              },
+            ],
+          };
+        }
+
         const { project } = await readProject(file);
         const { content, doc } = resolveDBSchemaDocument(project, document);
 
@@ -1159,7 +1386,7 @@ export function createMindgraphServer(): McpServer {
     'save_snapshot',
     'Save a named snapshot of the current database schema state for historical tracking and diffing.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -1173,6 +1400,22 @@ export function createMindgraphServer(): McpServer {
     { destructiveHint: false },
     async ({ file, document, name, expectedRevision }) => {
       try {
+        const { isLive } = await resolveRouting(file, true);
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.saveSnapshot', {
+            name,
+            expectedRevision,
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Snapshot "${res.name}" saved successfully via LIVE bridge (ID: ${res.snapshotId}). Revision: ${res.nextRevision}`,
+              },
+            ],
+          };
+        }
+
         const { project } = await readProject(file);
         const { content, doc } = resolveDBSchemaDocument(project, document);
 
@@ -1205,7 +1448,7 @@ export function createMindgraphServer(): McpServer {
     'list_snapshots',
     'List all saved snapshots for a database schema document.',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       document: z
         .string()
         .optional()
@@ -1214,6 +1457,24 @@ export function createMindgraphServer(): McpServer {
     { readOnlyHint: true },
     async ({ file, document }) => {
       try {
+        const { isLive } = await resolveRouting(file, false);
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.listSnapshots', { documentId: document });
+          const snapshots = res.snapshots || [];
+          const list =
+            snapshots.length === 0
+              ? 'No snapshots saved for this document.'
+              : snapshots
+                  .map(
+                    (s: any) =>
+                      `- "${s.name}" (ID: ${s.id}, ${s.timestamp}): ${s.tablesCount} tables, ${s.relationshipsCount} relationships`
+                  )
+                  .join('\n');
+          return {
+            content: [{ type: 'text', text: list }],
+          };
+        }
+
         const { project } = await readProject(file);
         const { content } = resolveDBSchemaDocument(project, document);
         const snapshots = content.snapshots || [];
@@ -1242,7 +1503,7 @@ export function createMindgraphServer(): McpServer {
     'set_design_guidelines',
     'Set or update the project AI database design guidelines (domain brief, naming conventions, timestamps, soft delete, FK rules).',
     {
-      file: z.string().describe('Relative path to the project file in workspace'),
+      file: z.string().describe('Relative path to the project file in workspace, or "@active" for currently active project in desktop app'),
       guidelines: z
         .object({
           brief: z
@@ -1293,6 +1554,49 @@ export function createMindgraphServer(): McpServer {
     { destructiveHint: false, idempotentHint: true },
     async ({ file, guidelines, merge, expectedRevision }) => {
       try {
+        const { isLive } = await resolveRouting(file, true);
+        if (isLive) {
+          let finalGuidelines: AIGuidelines;
+          if (merge) {
+            const cur = await bridgeClient.request('bridge.getGuidelines');
+            const existing = cur.guidelines || {};
+            finalGuidelines = {
+              brief: guidelines.brief !== undefined ? guidelines.brief : existing.brief,
+              conventions: {
+                ...(existing.conventions || {}),
+                ...(guidelines.conventions || {}),
+              },
+              updatedAt: new Date().toISOString(),
+            };
+          } else {
+            finalGuidelines = {
+              ...guidelines,
+              updatedAt: new Date().toISOString(),
+            };
+          }
+          const res = await bridgeClient.request('bridge.setGuidelines', {
+            guidelines: finalGuidelines,
+            expectedRevision,
+          });
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    success: true,
+                    via: 'live',
+                    revision: res.nextRevision,
+                    guidelines: finalGuidelines,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
         const { project } = await readProject(file);
 
         const existingGuidelines = project.settings?.aiGuidelines || {};
@@ -1363,9 +1667,17 @@ export function createMindgraphServer(): McpServer {
     async (uri, { file }) => {
       try {
         const filePath = Array.isArray(file) ? file.join('/') : file;
-        const { project } = await readProject(String(filePath));
-        const guidelines = project.settings?.aiGuidelines;
-        const promptText = formatGuidelinesAsPrompt(guidelines, project.name);
+        const { isLive } = await resolveRouting(String(filePath), false).catch(() => ({ isLive: false }));
+        let promptText = '';
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.getGuidelines');
+          const state = await bridgeClient.request('bridge.getState');
+          promptText = formatGuidelinesAsPrompt(res.guidelines, state.projectName);
+        } else {
+          const { project } = await readProject(String(filePath));
+          const guidelines = project.settings?.aiGuidelines;
+          promptText = formatGuidelinesAsPrompt(guidelines, project.name);
+        }
 
         return {
           contents: [{ uri: uri.href, text: promptText }],
@@ -1385,9 +1697,18 @@ export function createMindgraphServer(): McpServer {
     { mimeType: 'text/plain' },
     async (uri, { file, document }) => {
       try {
-        const { project } = await readProject(String(file));
-        const { content } = resolveDBSchemaDocument(project, String(document));
-        const dbml = generateDBML(content.tables, content.relationships);
+        const filePath = Array.isArray(file) ? file.join('/') : file;
+        const docParam = Array.isArray(document) ? document.join('/') : document;
+        const { isLive } = await resolveRouting(String(filePath), false).catch(() => ({ isLive: false }));
+        let dbml = '';
+        if (isLive) {
+          const res = await bridgeClient.request('bridge.getSchema', { documentId: docParam });
+          dbml = generateDBML(res.schema.tables, res.schema.relationships);
+        } else {
+          const { project } = await readProject(String(filePath));
+          const { content } = resolveDBSchemaDocument(project, String(docParam));
+          dbml = generateDBML(content.tables, content.relationships);
+        }
 
         return {
           contents: [{ uri: uri.href, text: truncateOutput(dbml) }],

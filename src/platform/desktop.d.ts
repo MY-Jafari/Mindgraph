@@ -36,6 +36,22 @@ export interface FileChangedEvent {
   hash: string;
 }
 
+export interface BridgeActivityEntry {
+  id: string;
+  timestamp: string;
+  client: string;
+  tool: string;
+  summary: string;
+  isWrite?: boolean;
+}
+
+export interface BridgeStatus {
+  enabled: boolean;
+  accessLevel: 'read-only' | 'read-and-edit';
+  connectedClients: number;
+  activityLog?: BridgeActivityEntry[];
+}
+
 export interface DesktopBridge {
   isDesktop: true;
   getVersion: () => Promise<string>;
@@ -52,6 +68,15 @@ export interface DesktopBridge {
   getMcpServerPath: () => Promise<string>;
   getMcpInfo?: () => Promise<{ bundlePath: string; execPath: string; isPackaged: boolean }>;
   testMcpConnection: (workspacePath?: string) => Promise<McpConnectionTestResult>;
+  getBridgeStatus?: () => Promise<BridgeStatus>;
+  setBridgeConfig?: (opts: { enabled: boolean; accessLevel?: 'read-only' | 'read-and-edit' }) => Promise<BridgeStatus>;
+  disconnectAllBridgeClients?: () => Promise<boolean>;
+  onBridgeActivity?: (cb: (entry: BridgeActivityEntry) => void) => () => void;
+  onBridgeStatusChange?: (cb: (status: { connectedClients: number; enabled: boolean }) => void) => () => void;
+  onBridgeConsentPrompt?: (cb: (prompt: { clientName: string; clientVersion: string; consentKey: string }) => void) => () => void;
+  respondBridgeConsent?: (consentKey: string, allowed: boolean) => void;
+  onBridgeRequest?: (cb: (req: { id: string; method: string; params: any; clientInfo: any }) => void) => () => void;
+  respondBridgeRequest?: (id: string, payload: { result?: any; error?: string }) => Promise<void>;
   fileExists: (filePath: string) => Promise<boolean>;
   onBeforeClose: (cb: () => void) => () => void;
   confirmClose: () => void;

@@ -38,6 +38,43 @@ contextBridge.exposeInMainWorld('mindgraphDesktop', {
   testMcpConnection: (workspacePath) =>
     ipcRenderer.invoke('mcp:test-connection', workspacePath),
 
+  // Live Bridge IPC
+  getBridgeStatus: () => ipcRenderer.invoke('bridge:get-status'),
+  setBridgeConfig: (opts) => ipcRenderer.invoke('bridge:set-config', opts),
+  disconnectAllBridgeClients: () => ipcRenderer.invoke('bridge:disconnect-all'),
+
+  onBridgeActivity: (callback) => {
+    const handler = (_event, entry) => callback(entry);
+    ipcRenderer.on('bridge:activity', handler);
+    return () => ipcRenderer.removeListener('bridge:activity', handler);
+  },
+
+  onBridgeStatusChange: (callback) => {
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('bridge:status-change', handler);
+    return () => ipcRenderer.removeListener('bridge:status-change', handler);
+  },
+
+  onBridgeConsentPrompt: (callback) => {
+    const handler = (_event, prompt) => callback(prompt);
+    ipcRenderer.on('bridge:consent-prompt', handler);
+    return () => ipcRenderer.removeListener('bridge:consent-prompt', handler);
+  },
+
+  respondBridgeConsent: (consentKey, allowed) => {
+    ipcRenderer.send(`bridge:consent-response:${consentKey}`, allowed);
+  },
+
+  onBridgeRequest: (callback) => {
+    const handler = (_event, req) => callback(req);
+    ipcRenderer.on('bridge:request', handler);
+    return () => ipcRenderer.removeListener('bridge:request', handler);
+  },
+
+  respondBridgeRequest: (id, payload) => {
+    return ipcRenderer.invoke(`bridge:response:${id}`, payload);
+  },
+
   fileExists: (filePath) =>
     ipcRenderer.invoke('fs:file-exists', filePath),
 

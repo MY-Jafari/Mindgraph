@@ -16,6 +16,7 @@ const {
   ProjectFileWatcher,
   testMcpServerConnection,
 } = require('./pureLogic.cjs');
+const { createBridgeHost } = require('./bridgeHost.cjs');
 
 // Stable app name ensures userData is %APPDATA%\Mindgraph on Windows
 app.name = 'Mindgraph';
@@ -50,6 +51,10 @@ const distDirectory = path.resolve(__dirname, '..', 'dist');
 const backupDirectory = path.join(app.getPath('userData'), 'backups');
 const lastKnownFileHash = new Map();
 const projectWatcher = new ProjectFileWatcher();
+
+let bridgeHost = null;
+let bridgeEnabled = false;
+let bridgeAccessLevel = 'read-and-edit';
 
 function getWindowStateFile() {
   return path.join(app.getPath('userData'), 'window-state.json');
@@ -375,6 +380,119 @@ function registerIpcHandlers() {
     return testMcpServerConnection(execPath, bundlePath, ws, 5000, env);
   });
 
+  // Live Bridge IPC
+  ipcMain.handle('bridge:get-status', (event) => {
+    validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    return {
+      enabled: bridgeEnabled,
+      accessLevel: bridgeAccessLevel,
+      connectedClients: bridgeHost ? bridgeHost.getConnectedClientsCount() : 0,
+      activityLog: bridgeHost ? bridgeHost.getActivityLog() : [],
+    };
+  });
+
+  ipcMain.handle('bridge:set-config', async (event, opts) => {
+    validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    if (!opts) return { enabled: bridgeEnabled, accessLevel: bridgeAccessLevel, connectedClients: 0 };
+
+    const shouldEnable = !!opts.enabled;
+    if (opts.accessLevel) {
+      bridgeAccessLevel = opts.accessLevel === 'read-only' ? 'read-only' : 'read-and-edit';
+    }
+
+    if (shouldEnable && !bridgeEnabled) {
+      bridgeEnabled = true;
+      if (!bridgeHost) {
+        bridgeHost = createBridgeHost({
+          userDataPath: app.getPath('userData'),
+          appVersion: app.getVersion(),
+          getAccessLevel: () => bridgeAccessLevel,
+          onConsentPrompt: async (clientInfo) => {
+            if (!mainWindow || mainWindow.isDestroyed()) return false;
+            return new Promise((resolve) => {
+              const consentKey = `consent-${Date.now()}`;
+              mainWindow.webContents.send('bridge:consent-prompt', { ...clientInfo, consentKey });
+              ipcMain.once(`bridge:consent-response:${consentKey}`, (_e, allowed) => {
+                resolve(!!allowed);
+              });
+              // Fallback default allow after 15s if user ignores
+              setTimeout(() => resolve(true), 15000);
+            });
+          },
+          onRequest: async (method, params, clientInfo) => {
+            if (!mainWindow || mainWindow.isDestroyed()) {
+              throw new Error('Mindgraph desktop window is closed.');
+            }
+            const reqId = `breq-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+            return new Promise((resolve, reject) => {
+              const timer = setTimeout(() => {
+                ipcMain.removeHandler(`bridge:response:${reqId}`);
+                reject(new Error(`Bridge request ${method} timed out in renderer.`));
+              }, 25000);
+
+              ipcMain.handleOnce(`bridge:response:${reqId}`, (_e, payload) => {
+                clearTimeout(timer);
+                if (payload?.error) {
+                  reject(new Error(payload.error));
+                } else {
+                  resolve(payload?.result);
+                }
+              });
+
+              mainWindow.webContents.send('bridge:request', {
+                id: reqId,
+                method,
+                params,
+                clientInfo,
+              });
+            });
+          },
+          onActivity: (entry) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('bridge:activity', entry);
+            }
+          },
+          onStatusChange: (count) => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('bridge:status-change', {
+                connectedClients: count,
+                enabled: bridgeEnabled,
+              });
+            }
+          },
+        });
+      }
+      try {
+        await bridgeHost.start();
+      } catch (err) {
+        console.error('Failed to start bridge host:', err);
+        bridgeEnabled = false;
+      }
+    } else if (!shouldEnable && bridgeEnabled) {
+      bridgeEnabled = false;
+      if (bridgeHost) {
+        try {
+          await bridgeHost.stop();
+        } catch (_) {}
+        bridgeHost = null;
+      }
+    }
+
+    return {
+      enabled: bridgeEnabled,
+      accessLevel: bridgeAccessLevel,
+      connectedClients: bridgeHost ? bridgeHost.getConnectedClientsCount() : 0,
+    };
+  });
+
+  ipcMain.handle('bridge:disconnect-all', (event) => {
+    validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    if (bridgeHost) {
+      bridgeHost.disconnectAll();
+    }
+    return true;
+  });
+
   // File Exists
   ipcMain.handle('fs:file-exists', (event, filePath) => {
     validateIpcSender(event.senderFrame?.url, app.isPackaged);
@@ -527,6 +645,11 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   isQuitting = true;
+  if (bridgeHost) {
+    try {
+      await bridgeHost.stop();
+    } catch (_) {}
+  }
 });

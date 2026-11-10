@@ -287,6 +287,81 @@ export function SettingsDialog() {
             </p>
 
             <div className="space-y-3 p-3 rounded-lg border border-border/80 bg-muted/20 text-xs">
+              {/* Live Bridge Master Switch */}
+              {isDesktopApp() && (
+                <div className="space-y-3 p-3 rounded-lg border border-primary/30 bg-primary/5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                        <Bot className="w-4 h-4 text-primary" />
+                        <span>{t('bridge.masterSwitch', 'Allow AI agents to connect to running desktop app')}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        {t(
+                          'bridge.masterSwitchDesc',
+                          'When enabled, MCP agents connect to the active canvas over a secure local pipe. Changes appear live with instant single-step Undo.'
+                        )}
+                      </p>
+                    </div>
+                    <input
+                      type="checkbox"
+                      id="toggle-live-bridge"
+                      checked={Boolean(settings.bridgeEnabled)}
+                      onChange={(e) => {
+                        const enabled = e.target.checked;
+                        updateSettings({ bridgeEnabled: enabled });
+                        if (window.mindgraphDesktop?.setBridgeConfig) {
+                          window.mindgraphDesktop.setBridgeConfig({
+                            enabled,
+                            accessLevel: settings.bridgeAccessLevel,
+                          });
+                        }
+                      }}
+                      className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                    />
+                  </div>
+
+                  {settings.bridgeEnabled && (
+                    <div className="pt-2 border-t border-border/60 space-y-2.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <label htmlFor="select-bridge-access" className="font-medium text-foreground">
+                          {t('bridge.accessLevel', 'AI Access Level')}
+                        </label>
+                        <select
+                          id="select-bridge-access"
+                          value={settings.bridgeAccessLevel}
+                          onChange={(e) => {
+                            const level = e.target.value as 'read-only' | 'read-and-edit';
+                            updateSettings({ bridgeAccessLevel: level });
+                            if (window.mindgraphDesktop?.setBridgeConfig) {
+                              window.mindgraphDesktop.setBridgeConfig({
+                                enabled: Boolean(settings.bridgeEnabled),
+                                accessLevel: level,
+                              });
+                            }
+                          }}
+                          className="text-xs px-2.5 py-1 rounded-md border border-border bg-background focus:ring-2 focus:ring-primary"
+                        >
+                          <option value="read-and-edit">
+                            {t('bridge.accessReadWrite', 'Read and edit (full design pair-programming)')}
+                          </option>
+                          <option value="read-only">
+                            {t('bridge.accessReadOnly', 'Read only (inspections, linting, exports)')}
+                          </option>
+                        </select>
+                      </div>
+
+                      <div className="p-2 rounded bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                        {t(
+                          'bridge.injectionWarning',
+                          'Prompt Injection Defense: User-authored text (table names, column comments, notes) is passed as raw data. Never store confidential credentials or secrets in database schema comments.'
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Workspace folder input */}
               <div className="space-y-1">
                 <label className="font-semibold text-foreground block">

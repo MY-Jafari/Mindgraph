@@ -8,6 +8,8 @@ export interface AppSettings {
   defaultDialect: SQLDialect;
   namingConvention: NamingConvention;
   mcpWorkspaceFolder?: string;
+  bridgeEnabled?: boolean;
+  bridgeAccessLevel?: 'read-only' | 'read-and-edit';
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -16,6 +18,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultDialect: 'postgresql',
   namingConvention: 'snake_case',
   mcpWorkspaceFolder: '',
+  bridgeEnabled: false,
+  bridgeAccessLevel: 'read-and-edit',
 };
 
 const SETTINGS_KEY = 'app_settings';

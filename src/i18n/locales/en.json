@@ -286,5 +286,33 @@
     "close": "Close",
     "toolbarButton": "Design Guidelines",
     "openGuidelines": "Edit AI Design Guidelines"
+  },
+  "bridge": {
+    "appliedChanges": "AI Agent applied {{count}} schema change(s).",
+    "masterSwitch": "Allow AI agents to connect to running desktop app",
+    "masterSwitchDesc": "When enabled, MCP agents connect to the active canvas over a secure local pipe. Changes appear live with instant single-step Undo.",
+    "accessLevel": "AI Access Level",
+    "accessReadWrite": "Read and edit (full design pair-programming)",
+    "accessReadOnly": "Read only (inspections, linting, exports)",
+    "injectionWarning": "Prompt Injection Defense: User-authored text (table names, column comments, notes) is passed as raw data. Never store confidential credentials or secrets in database schema comments.",
+    "securityNotice": "Prompt Injection Defense: User-authored text (table names, column comments, notes) is passed to AI agents strictly as raw data. Never store sensitive credentials or confidential API keys in schema comments.",
+    "connectedTooltip": "{{count}} AI Agent(s) connected",
+    "listeningTooltip": "AI Bridge listening for local connections",
+    "badgeActive": "AI Bridge ({{count}})",
+    "badgeStandby": "AI Bridge",
+    "activityTitle": "AI Live Bridge Activity",
+    "activityDesc": "Real-time audit log of tool calls and schema modifications received over the local named pipe.",
+    "statusConnected": "{{count}} Connected",
+    "statusIdle": "Idle / Listening",
+    "recentActions": "Recent Actions (Last 50)",
+    "clearLog": "Clear Log",
+    "noActivityYet": "No bridge activity recorded in this session.",
+    "disconnectAll": "Disconnect All / Stop AI",
+    "consentTitle": "AI Agent Connection Request",
+    "consentDesc": "A local AI tool or MCP client is requesting access to your active database canvas.",
+    "clientVersion": "Version",
+    "consentPromptText": "Do you want to allow this agent to read and design tables directly on your active canvas for this session?",
+    "deny": "Deny",
+    "allowSession": "Allow for this Session"
   }
 }
