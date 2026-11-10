@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { notify } from '@/shared/stores/toastStore';
 import type {
   DBTable,
   DBColumn,
@@ -242,6 +243,7 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   saveSnapshot: (name) => {
     const { tables, relationships, snapshots } = get();
     if (snapshots.length >= 100) {
+      notify({ kind: 'warning', messageKey: 'limits.snapshots', params: { cap: 100 } });
       console.warn('Maximum snapshots limit (100) reached.');
       return null as unknown as DBSchemaSnapshot;
     }
@@ -267,6 +269,7 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   addTable: (name, pos) => {
     const { tables, dialect } = get();
     if (tables.length >= 500) {
+      notify({ kind: 'warning', messageKey: 'limits.tables', params: { cap: 500 } });
       console.warn('Maximum tables limit (500) reached.');
       return null as unknown as DBTable;
     }
@@ -345,6 +348,7 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
   duplicateTable: (tableId) => {
     const { tables } = get();
     if (tables.length >= 500) {
+      notify({ kind: 'warning', messageKey: 'limits.tables', params: { cap: 500 } });
       console.warn('Maximum tables limit (500) reached.');
       return null;
     }
@@ -657,11 +661,13 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
     const { relationships, tables, notation } = get();
 
     if (relationships.length >= 2000) {
+      notify({ kind: 'warning', messageKey: 'limits.relationships', params: { cap: 2000 } });
       console.warn('Maximum relationships limit (2000) reached.');
       return null;
     }
 
     if (sourceTableId === targetTableId && sourceColumnId === targetColumnId) {
+      notify({ kind: 'warning', messageKey: 'relationship.selfLink' });
       console.warn('Cannot link a column to itself.');
       return null;
     }
@@ -674,6 +680,7 @@ export const useDBDesignerStore = create<DBDesignerState>((set, get) => ({
         r.targetColumnId === targetColumnId
     );
     if (exists) {
+      notify({ kind: 'warning', messageKey: 'relationship.duplicate' });
       console.warn('Relationship between these columns already exists.');
       return null;
     }

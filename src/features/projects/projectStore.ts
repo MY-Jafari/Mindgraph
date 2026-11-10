@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { notify } from '@/shared/stores/toastStore';
 import type {
   Project,
   Document,
@@ -393,6 +394,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       throw new Error('No active project to add document to');
     }
     if (activeProject.documents.length >= 200) {
+      notify({ kind: 'warning', messageKey: 'limits.documents', params: { cap: 200 } });
       throw new Error('Maximum documents limit (200) reached.');
     }
 

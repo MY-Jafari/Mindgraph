@@ -12,6 +12,8 @@ import { isDesktopApp } from '@/platform/fileService';
 import { Button } from '@/shared/components/ui/button';
 import { ArrowUpCircle } from 'lucide-react';
 
+import { Toaster } from '@/shared/components/Toaster';
+
 export function App() {
   const { t } = useTranslation();
   const { applyTheme, theme } = useThemeStore();
@@ -146,6 +148,7 @@ export function App() {
           </div>
         </div>
       )}
+      <Toaster />
     </>
   );
 }

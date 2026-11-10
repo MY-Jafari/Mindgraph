@@ -32,9 +32,13 @@ export function NewDocumentModal({ isOpen, onClose }: NewDocumentModalProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const docTitle = title.trim() || (docType === 'mindtree' ? 'Untitled Map' : 'Untitled Schema');
-    addDocument(docTitle, docType, dialect);
-    setTitle('');
-    onClose();
+    try {
+      addDocument(docTitle, docType, dialect);
+      setTitle('');
+      onClose();
+    } catch (_err) {
+      // Toast notification is already shown
+    }
   };
 
   return (

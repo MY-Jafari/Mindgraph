@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { notify } from '@/shared/stores/toastStore';
 import type {
   MindTreeNode,
   MindTreeEdge,
@@ -249,6 +250,7 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   addNode: (parentId, label = 'New Node') => {
     const { nodes, edges, selectedNodeIds, rootNodeId, layoutMode } = get();
     if (nodes.length >= 20000) {
+      notify({ kind: 'warning', messageKey: 'limits.nodes', params: { cap: 20000 } });
       console.warn('Maximum nodes limit (20,000) reached.');
       return null as unknown as MindTreeNode;
     }
@@ -305,6 +307,7 @@ export const useMindTreeStore = create<MindTreeState>((set, get) => ({
   addRichNode: (type, parentId, customData = {}) => {
     const { nodes, edges, selectedNodeIds, rootNodeId, layoutMode } = get();
     if (nodes.length >= 20000) {
+      notify({ kind: 'warning', messageKey: 'limits.nodes', params: { cap: 20000 } });
       console.warn('Maximum nodes limit (20,000) reached.');
       return null as unknown as MindTreeNode;
     }

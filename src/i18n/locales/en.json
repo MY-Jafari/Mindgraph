@@ -216,5 +216,16 @@
     "updateError": "Update check failed: {{message}}",
     "localBackups": "Local Backups",
     "openBackupFolder": "Open Backup Folder"
+  },
+  "limits": {
+    "tables": "Maximum tables limit ({{cap}}) reached.",
+    "nodes": "Maximum nodes limit ({{cap}}) reached.",
+    "snapshots": "Maximum snapshots limit ({{cap}}) reached.",
+    "relationships": "Maximum relationships limit ({{cap}}) reached.",
+    "documents": "Maximum documents limit ({{cap}}) reached."
+  },
+  "relationship": {
+    "duplicate": "Relationship between these columns already exists.",
+    "selfLink": "Cannot link a column to itself."
   }
 }
