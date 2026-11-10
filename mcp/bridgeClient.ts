@@ -33,7 +33,11 @@ export class BridgeClient {
   private pendingRequests: Map<number, { resolve: (val: any) => void; reject: (err: any) => void; timer: any }> = new Map();
   private incomingBuffer: string = '';
 
-  constructor(private customDiscoveryPath?: string) {}
+  private customDiscoveryPath?: string;
+
+  constructor(customDiscoveryPath?: string) {
+    this.customDiscoveryPath = customDiscoveryPath;
+  }
 
   /**
    * Resolves the discovery file path (userData/bridge.json).
@@ -148,7 +152,7 @@ export class BridgeClient {
         clientName: 'Mindgraph MCP Server',
         clientVersion: '1.0.0',
         protocolVersion: 1,
-      }, 3000)) as BridgeHelloResult;
+      }, 20000)) as BridgeHelloResult;
 
       if (!helloRes) {
         this.close();

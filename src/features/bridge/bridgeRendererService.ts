@@ -151,11 +151,11 @@ async function handleBridgeRequest(method: string, params: any = {}): Promise<an
         specResult = applySchemaSpecCore(content, spec, {
           dialect: dbStore.dialect,
           applyGuidelines: params.applyGuidelines !== false,
-          guidelines: activeProject.settings?.aiGuidelines,
+          guidelines: useProjectStore.getState().project?.settings?.aiGuidelines || activeProject.settings?.aiGuidelines,
         });
         return {
-          tables: content.tables,
-          relationships: content.relationships,
+          tables: specResult.content.tables,
+          relationships: specResult.content.relationships,
           snapshotName,
         };
       });
