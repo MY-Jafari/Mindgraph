@@ -847,7 +847,7 @@ export function createMindgraphServer(): McpServer {
   // 8. create_project
   server.tool(
     'create_project',
-    'Create a new Mindgraph project file in the workspace with an initial database schema document.',
+    'Create a new Mindgraph project file in the workspace with an initial database schema or mind tree document.',
     {
       file: z
         .string()
@@ -857,14 +857,19 @@ export function createMindgraphServer(): McpServer {
         .enum(['postgresql', 'mysql', 'mariadb', 'sqlite', 'sqlserver', 'oracle'])
         .optional()
         .describe('Default SQL dialect (default: postgresql)'),
+      documentType: z
+        .enum(['dbschema', 'mindtree'])
+        .optional()
+        .default('dbschema')
+        .describe('Initial document type to create in the project: dbschema or mindtree'),
     },
     { destructiveHint: false },
-    async ({ file, name, dialect }) => {
+    async ({ file, name, dialect, documentType }) => {
       try {
         const res = await createProject(file, {
           name,
           dialect: dialect || 'postgresql',
-          documentType: 'dbschema',
+          documentType: documentType || 'dbschema',
         });
 
         return {
