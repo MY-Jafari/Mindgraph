@@ -119,3 +119,17 @@ release-build/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# User data and project files (keep samples/)
+*.mindgraph.json
+!samples/*.mindgraph.json
+*.bak
+*.sql
+!tests/fixtures/*.sql
+
+# Prompts and local scratch scripts
+*prompt*.md
+*Prompt*.md
+*.prompt.md
+scratch/
+
