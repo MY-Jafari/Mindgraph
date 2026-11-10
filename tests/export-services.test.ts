@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { exportToMarkdownOutline } from '../src/features/export/services/markdownOutline';
 import { exportToOPML } from '../src/features/export/services/opmlExport';
 import { exportToSelfContainedHTML } from '../src/features/export/services/htmlViewerExport';
-import { calculateCanvasBounds } from '../src/features/export/services/visualExport';
+import { calculateCanvasBounds, dataUrlToBlob } from '../src/features/export/services/visualExport';
+import { downloadFile } from '../src/features/export/services/zipBackup';
 import type { MindTreeNode, Document } from '../src/features/projects/types';
 import JSZip from 'jszip';
 
@@ -174,5 +175,56 @@ describe('Phase 6: Unified Export Services', () => {
     expect(bounds.width).toBe(1700);
     // Max Y is 800 + 150 = 950 -> total height = 950 - (-100) = 1050
     expect(bounds.height).toBe(1050);
+  });
+
+  describe('In-memory dataUrl to Blob & Native Desktop Download', () => {
+    it('converts base64 data URLs to Blobs offline without fetch()', async () => {
+      // 1x1 transparent PNG data URL
+      const pngDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const blob = dataUrlToBlob(pngDataUrl);
+
+      expect(blob).toBeInstanceOf(Blob);
+      expect(blob.type).toBe('image/png');
+      expect(blob.size).toBeGreaterThan(0);
+      const text = await blob.text();
+      expect(text.length).toBeGreaterThan(0);
+    });
+
+    it('converts URL-encoded SVG data URLs to SVG Blobs without fetch()', async () => {
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><circle cx="50" cy="50" r="40"/></svg>';
+      const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+      const blob = dataUrlToBlob(svgDataUrl);
+
+      expect(blob).toBeInstanceOf(Blob);
+      expect(blob.type).toBe('image/svg+xml');
+      const text = await blob.text();
+      expect(text).toBe(svg);
+    });
+
+    it('delegates downloadFile to window.mindgraphDesktop.saveExportFile in Desktop environment', async () => {
+      let savedBytes: ArrayBuffer | null = null;
+      let savedName = '';
+
+      const originalDesktop = (globalThis as any).window?.mindgraphDesktop;
+      (globalThis as any).window = (globalThis as any).window || {};
+      (globalThis as any).window.mindgraphDesktop = {
+        saveExportFile: async (bytes: ArrayBuffer, suggestedName: string) => {
+          savedBytes = bytes;
+          savedName = suggestedName;
+          return { canceled: false, filePath: `C:\\Users\\test\\${suggestedName}` };
+        },
+      };
+
+      try {
+        const testBlob = new Blob(['sample-export-content'], { type: 'text/plain' });
+        await downloadFile(testBlob, 'diagram.png');
+
+        expect(savedName).toBe('diagram.png');
+        expect(savedBytes).not.toBeNull();
+        expect(savedBytes!.byteLength).toBe('sample-export-content'.length);
+      } finally {
+        (globalThis as any).window.mindgraphDesktop = originalDesktop;
+      }
+    });
   });
 });

@@ -106,6 +106,9 @@ contextBridge.exposeInMainWorld('mindgraphDesktop', {
   saveLocalBackup: (bytes, filename) =>
     ipcRenderer.invoke('backup:save', bytes, filename),
 
+  saveExportFile: (bytes, suggestedName) =>
+    ipcRenderer.invoke('dialog:save-export-file', bytes, suggestedName),
+
   openBackupFolder: () =>
     ipcRenderer.invoke('backup:open-folder'),
 

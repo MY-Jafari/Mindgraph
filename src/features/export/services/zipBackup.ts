@@ -374,9 +374,23 @@ export async function restoreFullZipBackup(
 }
 
 /**
- * Triggers a client-side download for a blob
+ * Triggers a download for a blob. Uses native save dialog in Desktop app when available,
+ * or falls back to anchor download in browser environments.
  */
-export function downloadFile(blob: Blob, fileName: string) {
+export async function downloadFile(blob: Blob, fileName: string): Promise<void> {
+  if (typeof window !== 'undefined' && window.mindgraphDesktop?.saveExportFile) {
+    try {
+      const arrayBuffer = await blob.arrayBuffer();
+      const res = await window.mindgraphDesktop.saveExportFile(arrayBuffer, fileName);
+      if (res.canceled) {
+        return;
+      }
+      return;
+    } catch (desktopErr) {
+      console.warn('Native desktop save failed, falling back to browser download:', desktopErr);
+    }
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

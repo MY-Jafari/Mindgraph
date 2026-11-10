@@ -21,6 +21,36 @@ export interface VisualExportOptions {
 }
 
 /**
+ * Converts a data URL (base64 or URL-encoded) to a Blob in memory without using network fetch().
+ * Eliminates security/CSP/network permission errors under Electron's custom app:// protocol or sandboxes.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const commaIndex = dataUrl.indexOf(',');
+  if (commaIndex === -1) {
+    return new Blob([dataUrl], { type: 'text/plain' });
+  }
+
+  const header = dataUrl.substring(0, commaIndex);
+  const data = dataUrl.substring(commaIndex + 1);
+  const mimeMatch = header.match(/^data:(.*?)(;base64)?$/i);
+  const mimeType = mimeMatch && mimeMatch[1] ? mimeMatch[1].split(';')[0] : 'application/octet-stream';
+  const isBase64 = header.toLowerCase().includes(';base64');
+
+  if (isBase64) {
+    const binaryStr = atob(data);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mimeType });
+  } else {
+    const decoded = decodeURIComponent(data);
+    return new Blob([decoded], { type: mimeType });
+  }
+}
+
+/**
  * Calculates the bounding box of all canvas nodes (with padding).
  */
 export function calculateCanvasBounds(nodes?: CanvasNodeBoundingInfo[]): {
@@ -127,6 +157,7 @@ export async function exportVisualCanvas(
     width: exportWidth,
     height: exportHeight,
     style: customStyle,
+    skipFonts: true, // Prevents html-to-image from fetching webfonts, avoiding app:// protocol and CSP fetch errors
     filter: (node: HTMLElement) => {
       // Exclude minimap, controls, and floating toolbars
       if (node.classList) {
@@ -145,9 +176,8 @@ export async function exportVisualCanvas(
 
   if (format === 'svg') {
     const dataUrl = await toSvg(targetElement, htmlToImageOptions);
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    downloadFile(blob, `${fileName}.svg`);
+    const blob = dataUrlToBlob(dataUrl);
+    await downloadFile(blob, `${fileName}.svg`);
     return;
   }
 
@@ -156,17 +186,15 @@ export async function exportVisualCanvas(
       ...htmlToImageOptions,
       backgroundColor: backgroundColor || '#ffffff', // JPEG cannot be transparent
     });
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    downloadFile(blob, `${fileName}.jpg`);
+    const blob = dataUrlToBlob(dataUrl);
+    await downloadFile(blob, `${fileName}.jpg`);
     return;
   }
 
   if (format === 'png') {
     const dataUrl = await toPng(targetElement, htmlToImageOptions);
-    const res = await fetch(dataUrl);
-    const blob = await res.blob();
-    downloadFile(blob, `${fileName}.png`);
+    const blob = dataUrlToBlob(dataUrl);
+    await downloadFile(blob, `${fileName}.png`);
     return;
   }
 
@@ -209,6 +237,7 @@ export async function exportVisualCanvas(
     const y = margin + (maxHeight - renderHeight) / 2;
 
     pdf.addImage(dataUrl, 'PNG', x, y, renderWidth, renderHeight);
-    pdf.save(`${fileName}.pdf`);
+    const pdfBlob = pdf.output('blob');
+    await downloadFile(pdfBlob, `${fileName}.pdf`);
   }
 }

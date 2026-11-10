@@ -152,10 +152,10 @@ function createWindow() {
     mainWindow.webContents.send('app:before-close');
   });
 
-  // Navigation security: prevent navigating outside the app
+  // Navigation security: prevent navigating outside the app (allow internal blob downloads)
   mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
     const allowed = app.isPackaged ? APP_ORIGIN : 'http://localhost:5173';
-    if (!targetUrl.startsWith(allowed)) {
+    if (!targetUrl.startsWith(allowed) && !targetUrl.startsWith('blob:')) {
       event.preventDefault();
     }
   });
@@ -272,6 +272,35 @@ function registerIpcHandlers() {
       return { canceled: true };
     }
 
+    return { canceled: false, filePath: result.filePath };
+  });
+
+  // Native Save Export File Dialog (PNG, SVG, JPEG, PDF, SQL, ZIP, JSON, etc.)
+  ipcMain.handle('dialog:save-export-file', async (event, arrayBuffer, suggestedName) => {
+    validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    const safeSuggested = typeof suggestedName === 'string' && suggestedName.trim()
+      ? suggestedName.trim()
+      : 'export';
+    const ext = path.extname(safeSuggested).replace('.', '').toLowerCase();
+    const filters = ext && ext !== '*'
+      ? [
+          { name: `${ext.toUpperCase()} File (*.${ext})`, extensions: [ext] },
+          { name: 'All Files (*.*)', extensions: ['*'] },
+        ]
+      : [{ name: 'All Files (*.*)', extensions: ['*'] }];
+
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export File',
+      defaultPath: safeSuggested,
+      filters,
+    });
+
+    if (result.canceled || !result.filePath) {
+      return { canceled: true };
+    }
+
+    const buffer = Buffer.from(arrayBuffer);
+    fs.writeFileSync(result.filePath, buffer);
     return { canceled: false, filePath: result.filePath };
   });
 

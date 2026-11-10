@@ -181,11 +181,16 @@ export function UnifiedExportDialog({ isOpen, onClose }: UnifiedExportDialogProp
     }
   };
 
-  const handleDownloadText = () => {
-    const { content, extension, mime } = getTextData();
-    const docName = (activeDocument?.title || 'document').replace(/\s+/g, '_');
-    const blob = new Blob([content], { type: mime });
-    downloadFile(blob, `${docName}.${extension}`);
+  const handleDownloadText = async () => {
+    try {
+      const { content, extension, mime } = getTextData();
+      const docName = (activeDocument?.title || 'document').replace(/\s+/g, '_');
+      const blob = new Blob([content], { type: mime });
+      await downloadFile(blob, `${docName}.${extension}`);
+    } catch (err) {
+      console.error('File download failed:', err);
+      alert(`Download failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const handleVisualExport = async () => {
@@ -234,7 +239,7 @@ export function UnifiedExportDialog({ isOpen, onClose }: UnifiedExportDialogProp
       });
     } catch (err) {
       console.error('Visual export failed:', err);
-      alert('Export failed. Please check browser permissions.');
+      alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsExporting(false);
     }
@@ -245,10 +250,10 @@ export function UnifiedExportDialog({ isOpen, onClose }: UnifiedExportDialogProp
       setIsExporting(true);
       const zipBlob = await exportFullZipBackup();
       const dateStr = new Date().toISOString().split('T')[0];
-      downloadFile(zipBlob, `mindgraph-backup-${dateStr}.zip`);
+      await downloadFile(zipBlob, `mindgraph-backup-${dateStr}.zip`);
     } catch (err) {
       console.error('Zip backup failed:', err);
-      alert('Failed to generate full backup ZIP');
+      alert(`Failed to generate full backup ZIP: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsExporting(false);
     }

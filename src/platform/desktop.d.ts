@@ -17,6 +17,11 @@ export interface SaveFileDialogResult {
   filePath?: string;
 }
 
+export interface SaveExportFileResult {
+  canceled: boolean;
+  filePath?: string;
+}
+
 export interface WriteProjectFileResult {
   success: boolean;
   conflict?: boolean;
@@ -85,6 +90,7 @@ export interface DesktopBridge {
   quitAndInstall: () => void;
   openExternal: (url: string) => Promise<void>;
   saveLocalBackup: (bytes: ArrayBuffer, filename: string) => Promise<{ success: boolean; filePath?: string }>;
+  saveExportFile?: (bytes: ArrayBuffer, suggestedName: string) => Promise<SaveExportFileResult>;
   openBackupFolder: () => Promise<void>;
   getBackupFolder: () => Promise<string>;
 }
