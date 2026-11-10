@@ -11,10 +11,6 @@ import { CommandPalette } from '@/shared/components/CommandPalette';
 import { ShortcutHelpModal } from '@/shared/components/ShortcutHelpModal';
 import { DesignGuidelinesModal } from './components/DesignGuidelinesModal';
 import { SchemaDiffModal } from '@/features/dbdesigner/components/SchemaDiffModal';
-import { initBridgeRenderer } from '@/features/bridge/bridgeRendererService';
-import { useBridgeStore } from '@/features/bridge/bridgeStore';
-import { BridgeActivityDialog } from '@/features/bridge/components/BridgeActivityDialog';
-import { BridgeConsentDialog } from '@/features/bridge/components/BridgeConsentDialog';
 
 const UnifiedExportDialog = lazy(() =>
   import('@/features/export/components/UnifiedExportDialog').then((module) => ({
@@ -41,16 +37,6 @@ export function WorkspaceView() {
     dismissAiBanner,
   } = useProjectStore();
   const activeDocument = activeProject?.documents.find((d) => d.id === activeDocumentId);
-
-  // Initialize live bridge renderer listener and UI bridge store listeners
-  useEffect(() => {
-    const unsubRenderer = initBridgeRenderer();
-    const unsubStore = useBridgeStore.getState().initBridgeListeners();
-    return () => {
-      unsubRenderer();
-      unsubStore();
-    };
-  }, []);
 
   // Global keyboard shortcuts (Ctrl+S for saving, Ctrl+K for palette, ? for shortcuts)
   useEffect(() => {
@@ -201,8 +187,6 @@ export function WorkspaceView() {
       {isDiffModalOpen && (
         <SchemaDiffModal isOpen={isDiffModalOpen} onClose={() => setIsDiffModalOpen(false)} />
       )}
-      <BridgeActivityDialog />
-      <BridgeConsentDialog />
     </div>
   );
 }

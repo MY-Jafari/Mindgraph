@@ -6,6 +6,10 @@ import { WelcomeScreen } from '@/features/projects/WelcomeScreen';
 import { WorkspaceView } from '@/features/projects/WorkspaceView';
 import { ProjectConflictDialog } from '@/features/projects/components/ProjectConflictDialog';
 import { SettingsDialog } from '@/shared/components/SettingsDialog';
+import { BridgeConsentDialog } from '@/features/bridge/components/BridgeConsentDialog';
+import { BridgeActivityDialog } from '@/features/bridge/components/BridgeActivityDialog';
+import { useBridgeStore } from '@/features/bridge/bridgeStore';
+import { initBridgeRenderer } from '@/features/bridge/bridgeRendererService';
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary';
 import { useSettingsStore } from '@/shared/stores/settingsStore';
 import { isDesktopApp } from '@/platform/fileService';
@@ -99,6 +103,17 @@ export function App() {
     initialize();
   }, [initialize]);
 
+  // Desktop live bridge listeners and renderer request service
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    const unsubRenderer = initBridgeRenderer();
+    const unsubStore = useBridgeStore.getState().initBridgeListeners();
+    return () => {
+      unsubRenderer();
+      unsubStore();
+    };
+  }, []);
+
   if (isLoading) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-background text-muted-foreground select-none">
@@ -117,6 +132,8 @@ export function App() {
       </ErrorBoundary>
       <ProjectConflictDialog />
       <SettingsDialog />
+      <BridgeConsentDialog />
+      <BridgeActivityDialog />
 
       {downloadedUpdateVersion && !isUpdateBannerDismissed && (
         <div className="fixed bottom-4 end-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg border border-primary/40 bg-card shadow-lg text-xs animate-in slide-in-from-bottom duration-300">

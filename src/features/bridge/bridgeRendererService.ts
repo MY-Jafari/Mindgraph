@@ -151,7 +151,7 @@ async function handleBridgeRequest(method: string, params: any = {}): Promise<an
         specResult = applySchemaSpecCore(content, spec, {
           dialect: dbStore.dialect,
           applyGuidelines: params.applyGuidelines !== false,
-          guidelines: useProjectStore.getState().project?.settings?.aiGuidelines || activeProject.settings?.aiGuidelines,
+          guidelines: useProjectStore.getState().activeProject?.settings?.aiGuidelines || activeProject.settings?.aiGuidelines,
         });
         return {
           tables: specResult.content.tables,

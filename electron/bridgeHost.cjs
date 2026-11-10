@@ -82,7 +82,8 @@ function createBridgeHost(options) {
   let pipePath = '';
   const discoveryFilePath = path.join(userDataPath, 'bridge.json');
 
-  const activeSockets = new Set();
+  const rawSockets = new Set();
+  const authenticatedSockets = new Set();
   const sessionAllowedClients = new Set();
   const activityLog = []; // max 50 entries
   let writeQueue = Promise.resolve();
@@ -110,18 +111,19 @@ function createBridgeHost(options) {
   function notifyStatusChange() {
     if (typeof options.onStatusChange === 'function') {
       try {
-        options.onStatusChange(activeSockets.size);
+        options.onStatusChange(authenticatedSockets.size);
       } catch (_) {}
     }
   }
 
   function disconnectAll() {
-    for (const socket of activeSockets) {
+    for (const socket of rawSockets) {
       try {
         socket.destroy();
       } catch (_) {}
     }
-    activeSockets.clear();
+    rawSockets.clear();
+    authenticatedSockets.clear();
     notifyStatusChange();
   }
 
@@ -142,7 +144,7 @@ function createBridgeHost(options) {
 
     server = net.createServer((socket) => {
       // Check maximum concurrent connections limit
-      if (activeSockets.size >= MAX_CONCURRENT_CLIENTS) {
+      if (rawSockets.size >= MAX_CONCURRENT_CLIENTS) {
         socket.end(
           JSON.stringify({
             jsonrpc: '2.0',
@@ -152,8 +154,7 @@ function createBridgeHost(options) {
         return;
       }
 
-      activeSockets.add(socket);
-      notifyStatusChange();
+      rawSockets.add(socket);
 
       let authenticated = false;
       let buffer = '';
@@ -279,6 +280,9 @@ function createBridgeHost(options) {
             }
 
             authenticated = true;
+            authenticatedSockets.add(socket);
+            notifyStatusChange();
+
             socket.write(
               JSON.stringify({
                 jsonrpc: '2.0',
@@ -393,13 +397,17 @@ function createBridgeHost(options) {
       });
 
       socket.on('close', () => {
-        activeSockets.delete(socket);
-        notifyStatusChange();
+        rawSockets.delete(socket);
+        if (authenticatedSockets.delete(socket)) {
+          notifyStatusChange();
+        }
       });
 
       socket.on('error', () => {
-        activeSockets.delete(socket);
-        notifyStatusChange();
+        rawSockets.delete(socket);
+        if (authenticatedSockets.delete(socket)) {
+          notifyStatusChange();
+        }
       });
     });
 
@@ -469,7 +477,7 @@ function createBridgeHost(options) {
     stop,
     disconnectAll,
     computePipePath,
-    getConnectedClientsCount: () => activeSockets.size,
+    getConnectedClientsCount: () => authenticatedSockets.size,
     getActivityLog: () => [...activityLog],
     getDiscoveryFilePath: () => discoveryFilePath,
     getToken: () => token,
