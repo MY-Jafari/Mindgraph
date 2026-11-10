@@ -78,4 +78,23 @@ describe('Phase 4: Installer Packaging (electron-builder & NSIS)', () => {
     expect(content).not.toContain('ext: json');
     expect(content).not.toContain('extension: json');
   });
+
+  it('keeps only electron runtime packages in dependencies and frontend packages in devDependencies', () => {
+    const pkgPath = path.resolve(process.cwd(), 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+
+    // Allow-list for runtime dependencies: only electron-updater
+    const allowedDependencies = new Set(['electron-updater']);
+
+    const deps = Object.keys(pkg.dependencies || {});
+    for (const dep of deps) {
+      expect(allowedDependencies.has(dep)).toBe(true);
+    }
+
+    // Ensure frontend packages were moved to devDependencies
+    expect(pkg.devDependencies).toHaveProperty('react');
+    expect(pkg.devDependencies).toHaveProperty('lucide-react');
+    expect(pkg.devDependencies).toHaveProperty('dexie');
+    expect(pkg.devDependencies).toHaveProperty('zustand');
+  });
 });

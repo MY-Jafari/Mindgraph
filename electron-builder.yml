@@ -8,6 +8,8 @@ files:
   - dist/**
   - electron/**
   - package.json
+  - "!**/*.map"
+  - "!**/node_modules/**/{test,tests,docs,*.md}"
 asar: true
 win:
   target:
