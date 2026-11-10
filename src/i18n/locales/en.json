@@ -89,7 +89,12 @@
     "deleteProjectConfirm": "Are you sure you want to delete this project? This action cannot be undone.",
     "deleteDocConfirm": "Are you sure you want to delete this document?",
     "untitledProject": "Untitled Project",
-    "untitledDoc": "Untitled Document"
+    "untitledDoc": "Untitled Document",
+    "externalUpdateToast": "Updated by an external tool",
+    "reloadFromFile": "Reload from file",
+    "aiChangedBanner": "The AI changed this design. Compare with the previous version",
+    "compareVersions": "Compare",
+    "dismissBanner": "Dismiss"
   },
   "theme": {
     "toggleTheme": "Toggle Theme",
@@ -215,7 +220,18 @@
     "upToDate": "Mindgraph is up to date.",
     "updateError": "Update check failed: {{message}}",
     "localBackups": "Local Backups",
-    "openBackupFolder": "Open Backup Folder"
+    "openBackupFolder": "Open Backup Folder",
+    "connectAgent": "Connect an AI Agent (MCP)",
+    "connectAgentDesc": "Configure Claude Desktop, Cursor, or Antigravity to design schemas directly via MCP.",
+    "mcpServerPath": "MCP Server Bundle Path",
+    "mcpWorkspace": "Workspace Directory (MINDGRAPH_WORKSPACE)",
+    "configSnippet": "Client Configuration Snippet (JSON)",
+    "copyConfig": "Copy Configuration",
+    "configCopied": "MCP configuration copied to clipboard!",
+    "testConnection": "Test Connection",
+    "testingConnection": "Testing...",
+    "testSuccess": "Connected successfully! ({{count}} tools available)",
+    "testFailed": "Connection failed: {{error}}"
   },
   "limits": {
     "tables": "Maximum tables limit ({{cap}}) reached.",

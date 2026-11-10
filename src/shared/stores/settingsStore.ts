@@ -7,6 +7,7 @@ export interface AppSettings {
   disableThirdPartyPreviews: boolean;
   defaultDialect: SQLDialect;
   namingConvention: NamingConvention;
+  mcpWorkspaceFolder?: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -14,6 +15,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   disableThirdPartyPreviews: false,
   defaultDialect: 'postgresql',
   namingConvention: 'snake_case',
+  mcpWorkspaceFolder: '',
 };
 
 const SETTINGS_KEY = 'app_settings';

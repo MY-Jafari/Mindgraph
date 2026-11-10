@@ -14,6 +14,7 @@ import {
   Edit2,
   Check,
   Settings,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import { SaveStatusIndicator } from './SaveStatusIndicator';
@@ -35,8 +36,10 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
   const {
     activeProject,
     activeDocumentId,
+    activeFileRef,
     updateDocumentTitle,
     closeProject,
+    reloadFromFile,
   } = useProjectStore();
 
   const activeDoc = activeProject?.documents.find((d) => d.id === activeDocumentId);
@@ -143,6 +146,18 @@ export function TopBar({ onOpenCommandPalette, onOpenExportDialog }: TopBarProps
         </div>
 
         <SaveStatusIndicator />
+
+        {activeFileRef && (
+          <Button
+            variant="ghost"
+            size="iconSm"
+            onClick={() => void reloadFromFile()}
+            title={t('project.reloadFromFile', 'Reload from file')}
+            className="h-7 w-7 text-muted-foreground hover:text-foreground"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
 
       {/* Middle Section: Undo / Redo / Zoom */}

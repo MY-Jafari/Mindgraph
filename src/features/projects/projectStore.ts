@@ -11,10 +11,12 @@ import type {
   Viewport,
   AIGuidelines,
   ProjectSettings,
+  DBSchemaContent,
 } from './types';
 import {
   createDefaultProject,
   createDefaultDocument,
+  migrateProject,
 } from './schema';
 import { db } from '@/shared/db';
 import {
@@ -55,6 +57,8 @@ interface ProjectState {
   lastSavedAt: Date | null;
   activeFileHandle: FileSystemFileHandle | null;
   activeFileRef: FileRef | null;
+  lastFileHash: string | null;
+  aiReviewBanner: { visible: boolean; snapshotName: string } | null;
   recentProjects: RecentProjectMeta[];
   isLoading: boolean;
   errorMessage: string | null;
@@ -76,6 +80,9 @@ interface ProjectState {
   closeProject: () => Promise<void>;
   updateProjectMeta: (patch: Partial<Pick<Project, 'name' | 'description' | 'settings'>>) => void;
   updateAIGuidelines: (guidelines: AIGuidelines) => void;
+  dismissAiBanner: () => void;
+  reloadFromFile: (opts?: { silent?: boolean; newHash?: string }) => Promise<boolean>;
+  handleExternalFileChange: (data: { filePath: string; hash?: string }) => Promise<void>;
 
   // Document Actions
   setActiveDocument: (documentId: string) => void;
@@ -87,7 +94,7 @@ interface ProjectState {
   deleteDocument: (documentId: string) => void;
 
   // File I/O
-  saveToDisk: (options?: { saveAs?: boolean }) => Promise<boolean>;
+  saveToDisk: (options?: { saveAs?: boolean; force?: boolean }) => Promise<boolean>;
   openFromDisk: () => Promise<boolean>;
   deleteRecentProject: (projectId: string) => Promise<void>;
   triggerAutosave: () => void;
@@ -208,6 +215,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   lastSavedAt: null,
   activeFileHandle: null,
   activeFileRef: null,
+  lastFileHash: null,
+  aiReviewBanner: null,
   recentProjects: [],
   isLoading: true,
   errorMessage: null,
@@ -347,6 +356,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       const updatedRecents = await db.recentProjects.orderBy('updatedAt').reverse().limit(10).toArray();
       set({ recentProjects: updatedRecents });
+
+      if (isDesktopApp() && effectiveRef?.kind === 'path' && window.mindgraphDesktop?.watchProjectFile) {
+        window.mindgraphDesktop.watchProjectFile(effectiveRef.path, (data) => {
+          void get().handleExternalFileChange(data);
+        });
+      }
     } catch (err: unknown) {
       console.error('Failed to persist project:', err);
       set({ saveStatus: 'error' });
@@ -361,6 +376,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   closeProject: async () => {
     await flushAutosave();
+    if (isDesktopApp() && window.mindgraphDesktop?.unwatchProjectFile) {
+      void window.mindgraphDesktop.unwatchProjectFile();
+    }
     // History/undo is discarded on close, so attachments no longer referenced
     // by any project can be reclaimed without breaking undo.
     await cleanupAllOrphanedBlobs();
@@ -369,8 +387,95 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       activeDocumentId: null,
       activeFileHandle: null,
       activeFileRef: null,
+      lastFileHash: null,
+      aiReviewBanner: null,
       saveStatus: 'saved',
     });
+  },
+
+  dismissAiBanner: () => {
+    set({ aiReviewBanner: null });
+  },
+
+  reloadFromFile: async (opts) => {
+    const { activeFileRef, activeDocumentId } = get();
+    if (!activeFileRef) return false;
+
+    try {
+      let rawText = '';
+      if (activeFileRef.kind === 'path') {
+        if (!window.mindgraphDesktop?.readProjectFile) return false;
+        const readRes = await window.mindgraphDesktop.readProjectFile(activeFileRef.path);
+        rawText = typeof readRes === 'string' ? readRes : (readRes as any).text;
+      } else if (activeFileRef.kind === 'handle') {
+        const file = await activeFileRef.handle.getFile();
+        rawText = await file.text();
+      }
+
+      if (!rawText) return false;
+      const json = JSON.parse(rawText);
+      const migrated = migrateProject(json);
+      await restoreProjectBlobs(migrated);
+
+      // Check if file contains an agent: snapshot
+      const dbDoc = migrated.documents.find((d) => d.type === 'dbschema');
+      let latestAgentSnapshot: string | null = null;
+      if (dbDoc && dbDoc.content && Array.isArray((dbDoc.content as DBSchemaContent).snapshots)) {
+        const snaps = (dbDoc.content as DBSchemaContent).snapshots || [];
+        const agentSnaps = snaps.filter((s) => s.name.startsWith('agent:'));
+        if (agentSnaps.length > 0) {
+          latestAgentSnapshot = agentSnaps[agentSnaps.length - 1].name;
+        }
+      }
+
+      // Preserve activeDocumentId if it still exists
+      const nextDocId = migrated.documents.some((d) => d.id === activeDocumentId)
+        ? activeDocumentId
+        : migrated.documents[0]?.id || null;
+
+      set({
+        activeProject: migrated,
+        activeDocumentId: nextDocId,
+        saveStatus: 'saved',
+        lastSavedAt: new Date(),
+        lastFileHash: opts?.newHash || null,
+        aiReviewBanner: latestAgentSnapshot
+          ? { visible: true, snapshotName: latestAgentSnapshot }
+          : null,
+      });
+
+      await db.projects.put(migrated);
+      return true;
+    } catch (err) {
+      console.error('Failed to reload project from file:', err);
+      return false;
+    }
+  },
+
+  handleExternalFileChange: async ({ filePath, hash }) => {
+    const { activeProject, activeFileRef, saveStatus } = get();
+    if (!activeProject || !activeFileRef || activeFileRef.kind !== 'path') return;
+    if (activeFileRef.path !== filePath) return;
+
+    if (saveStatus === 'saved') {
+      await get().reloadFromFile({ silent: true, newHash: hash });
+      notify({ kind: 'info', messageKey: 'project.externalUpdateToast' });
+    } else {
+      const resolution = await get().openConflictDialog({
+        projectName: activeProject.name,
+        projectId: activeProject.id,
+        existingUpdatedAt: activeProject.updatedAt,
+      });
+
+      if (resolution === 'keep-local') {
+        await get().saveToDisk({ force: true });
+      } else if (resolution === 'replace') {
+        await get().reloadFromFile({ silent: false, newHash: hash });
+      } else if (resolution === 'import-as-copy') {
+        await get().saveToDisk({ saveAs: true });
+        await get().reloadFromFile({ silent: false, newHash: hash });
+      }
+    }
   },
 
   updateProjectMeta: (patch) => {
@@ -594,7 +699,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     get().triggerAutosave();
   },
 
-  saveToDisk: async (options?: { saveAs?: boolean }) => {
+  saveToDisk: async (options?: { saveAs?: boolean; force?: boolean }) => {
     const { activeProject } = get();
     if (!activeProject) return false;
 
@@ -609,7 +714,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         latest.activeFileHandle
           ? { kind: 'handle', handle: latest.activeFileHandle }
           : latest.activeFileRef;
-      return fileService.save(latest.activeProject, currentRef, options);
+
+      const expectedHash = options?.force ? undefined : latest.lastFileHash || undefined;
+      return fileService.save(latest.activeProject, currentRef, { ...options, expectedHash });
     });
 
     if (result.success) {
@@ -623,6 +730,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         lastSavedAt: new Date(),
         activeFileRef: nextRef,
         activeFileHandle: nextHandle,
+        lastFileHash: result.hash || latest.lastFileHash,
         errorMessage: null,
       });
 
@@ -641,6 +749,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       // also save to Dexie
       await db.projects.put(currentProject);
       return true;
+    } else if (result.conflict) {
+      // Conflict: external tool modified the file on disk
+      const resolution = await get().openConflictDialog({
+        projectName: activeProject.name,
+        projectId: activeProject.id,
+        existingUpdatedAt: activeProject.updatedAt,
+      });
+
+      if (resolution === 'keep-local') {
+        return get().saveToDisk({ ...options, force: true });
+      } else if (resolution === 'replace') {
+        return get().reloadFromFile({ silent: false });
+      } else if (resolution === 'import-as-copy') {
+        return get().saveToDisk({ saveAs: true });
+      }
+      set({ saveStatus: 'unsaved' });
+      return false;
     } else {
       set({ saveStatus: 'error', errorMessage: result.error || 'Failed to save' });
       return false;
@@ -652,6 +777,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const result = await fileService.open();
     if (!result.success || !result.project) {
       return false;
+    }
+
+    if (result.hash) {
+      set({ lastFileHash: result.hash });
     }
 
     const incoming = result.project;

@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const cp = require('child_process');
 
 // ============================================================================
 // CRITICAL DATA PERSISTENCE WARNING:
@@ -165,6 +167,265 @@ function pruneOldBackups(backupDir, maxKeep = 7) {
   }
 }
 
+/**
+ * Computes SHA-256 of text in hex.
+ */
+function computeTextSha256(text) {
+  if (typeof text !== 'string') return '';
+  return crypto.createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex');
+}
+
+/**
+ * Computes SHA-256 of file on disk in hex.
+ */
+function computeFileSha256(filePath) {
+  if (typeof filePath !== 'string' || !fs.existsSync(filePath)) return null;
+  const content = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+/**
+ * Checks whether an external change should trigger a reload.
+ */
+function shouldReloadFile(currentDiskHash, lastKnownHash) {
+  if (!currentDiskHash) return false;
+  if (!lastKnownHash) return true;
+  return currentDiskHash !== lastKnownHash;
+}
+
+/**
+ * Validates whether writing to filePath would clobber an external change.
+ */
+function checkWriteConflict(currentDiskHash, expectedHash, lastKnownHash) {
+  if (!currentDiskHash) {
+    return { canWrite: true };
+  }
+  if (expectedHash) {
+    if (currentDiskHash === expectedHash) {
+      return { canWrite: true };
+    }
+    if (lastKnownHash && currentDiskHash === lastKnownHash) {
+      return { canWrite: true };
+    }
+    return { canWrite: false, conflict: true, diskHash: currentDiskHash };
+  }
+  if (lastKnownHash && currentDiskHash !== lastKnownHash) {
+    return { canWrite: false, conflict: true, diskHash: currentDiskHash };
+  }
+  return { canWrite: true };
+}
+
+/**
+ * File watcher with 300ms debounce and 2000ms polling fallback.
+ */
+class ProjectFileWatcher {
+  constructor(options = {}) {
+    this.debounceMs = options.debounceMs || 300;
+    this.pollIntervalMs = options.pollIntervalMs || 2000;
+    this.watcher = null;
+    this.pollTimer = null;
+    this.debounceTimer = null;
+    this.filePath = null;
+    this.lastMtime = null;
+  }
+
+  start(filePath, onChange) {
+    this.stop();
+    if (!filePath || typeof filePath !== 'string' || !fs.existsSync(filePath)) {
+      return false;
+    }
+    this.filePath = filePath;
+    try {
+      this.lastMtime = fs.statSync(filePath).mtimeMs;
+    } catch (_) {
+      this.lastMtime = 0;
+    }
+
+    const triggerDebounced = () => {
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+      }
+      this.debounceTimer = setTimeout(() => {
+        try {
+          if (this.filePath && fs.existsSync(this.filePath)) {
+            const currentMtime = fs.statSync(this.filePath).mtimeMs;
+            this.lastMtime = currentMtime;
+            onChange(this.filePath);
+          }
+        } catch (_) {}
+      }, this.debounceMs);
+    };
+
+    try {
+      this.watcher = fs.watch(filePath, (eventType) => {
+        if (eventType === 'change' || eventType === 'rename') {
+          triggerDebounced();
+        }
+      });
+      this.watcher.on('error', () => {
+        this.fallbackToPolling(onChange);
+      });
+    } catch (_) {
+      this.fallbackToPolling(onChange);
+    }
+
+    return true;
+  }
+
+  fallbackToPolling(onChange) {
+    if (this.watcher) {
+      try {
+        this.watcher.close();
+      } catch (_) {}
+      this.watcher = null;
+    }
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+    }
+    this.pollTimer = setInterval(() => {
+      try {
+        if (this.filePath && fs.existsSync(this.filePath)) {
+          const currentMtime = fs.statSync(this.filePath).mtimeMs;
+          if (this.lastMtime !== null && currentMtime > this.lastMtime) {
+            this.lastMtime = currentMtime;
+            onChange(this.filePath);
+          }
+        }
+      } catch (_) {}
+    }, this.pollIntervalMs);
+  }
+
+  stop() {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = null;
+    }
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+    if (this.watcher) {
+      try {
+        this.watcher.close();
+      } catch (_) {}
+      this.watcher = null;
+    }
+    this.filePath = null;
+    this.lastMtime = null;
+  }
+}
+
+/**
+ * Tests connection to Mindgraph MCP server via stdio transport.
+ */
+async function testMcpServerConnection(nodePath, bundlePath, workspacePath, timeoutMs = 5000) {
+  return new Promise((resolve) => {
+    let resolved = false;
+    let child = null;
+    let timer = null;
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      if (child) {
+        try {
+          child.kill();
+        } catch (_) {}
+      }
+    };
+
+    timer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        resolve({ success: false, error: 'Connection test timed out after 5 seconds.' });
+      }
+    }, timeoutMs);
+
+    try {
+      const exec = nodePath || 'node';
+      child = cp.spawn(exec, [bundlePath], {
+        env: { ...process.env, MINDGRAPH_WORKSPACE: workspacePath },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let stdoutBuffer = '';
+
+      child.stdout.on('data', (chunk) => {
+        stdoutBuffer += chunk.toString('utf8');
+        const lines = stdoutBuffer.split('\n');
+        stdoutBuffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const msg = JSON.parse(line.trim());
+            // Handshake response (id: 1)
+            if (msg.id === 1 && msg.result) {
+              // Now ask for tools/list (id: 2)
+              const listMsg =
+                JSON.stringify({
+                  jsonrpc: '2.0',
+                  id: 2,
+                  method: 'tools/list',
+                  params: {},
+                }) + '\n';
+              child.stdin.write(listMsg);
+            } else if (msg.id === 2 && msg.result?.tools) {
+              if (!resolved) {
+                resolved = true;
+                const toolCount = msg.result.tools.length;
+                const toolNames = msg.result.tools.map((t) => t.name);
+                cleanup();
+                resolve({
+                  success: true,
+                  toolCount,
+                  tools: toolNames,
+                });
+              }
+            }
+          } catch (_) {}
+        }
+      });
+
+      child.on('error', (err) => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          resolve({ success: false, error: err.message });
+        }
+      });
+
+      child.on('exit', (code) => {
+        if (!resolved) {
+          resolved = true;
+          cleanup();
+          resolve({ success: false, error: `Process exited with code ${code}` });
+        }
+      });
+
+      // Send initialize message (id: 1)
+      const initMsg =
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: 'mindgraph-desktop-tester', version: '1.0.0' },
+          },
+        }) + '\n';
+      child.stdin.write(initMsg);
+    } catch (err) {
+      if (!resolved) {
+        resolved = true;
+        cleanup();
+        resolve({ success: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  });
+}
+
 module.exports = {
   APP_ORIGIN,
   resolveSafeDistPath,
@@ -172,4 +433,10 @@ module.exports = {
   writeAtomicFile,
   readProjectFileSafe,
   pruneOldBackups,
+  computeTextSha256,
+  computeFileSha256,
+  shouldReloadFile,
+  checkWriteConflict,
+  ProjectFileWatcher,
+  testMcpServerConnection,
 };

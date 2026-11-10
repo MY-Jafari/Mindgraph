@@ -1,5 +1,6 @@
 import { Suspense, lazy, useState, useEffect } from 'react';
-import { AlertCircle, FilePlus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { AlertCircle, FilePlus, Sparkles, History, X } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
 import { Sidebar } from '@/shared/components/Sidebar';
 import { TopBar } from '@/shared/components/TopBar';
@@ -9,6 +10,7 @@ import { DBSchemaCanvas } from '@/features/dbdesigner/DBSchemaCanvas';
 import { CommandPalette } from '@/shared/components/CommandPalette';
 import { ShortcutHelpModal } from '@/shared/components/ShortcutHelpModal';
 import { DesignGuidelinesModal } from './components/DesignGuidelinesModal';
+import { SchemaDiffModal } from '@/features/dbdesigner/components/SchemaDiffModal';
 
 const UnifiedExportDialog = lazy(() =>
   import('@/features/export/components/UnifiedExportDialog').then((module) => ({
@@ -17,13 +19,23 @@ const UnifiedExportDialog = lazy(() =>
 );
 
 export function WorkspaceView() {
+  const { t } = useTranslation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState(false);
+  const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
 
-  const { activeProject, activeDocumentId, saveToDisk, saveStatus, errorMessage, addDocument } =
-    useProjectStore();
+  const {
+    activeProject,
+    activeDocumentId,
+    saveToDisk,
+    saveStatus,
+    errorMessage,
+    addDocument,
+    aiReviewBanner,
+    dismissAiBanner,
+  } = useProjectStore();
   const activeDocument = activeProject?.documents.find((d) => d.id === activeDocumentId);
 
   // Global keyboard shortcuts (Ctrl+S for saving, Ctrl+K for palette, ? for shortcuts)
@@ -75,6 +87,42 @@ export function WorkspaceView() {
           >
             Retry Save
           </button>
+        </div>
+      )}
+
+      {aiReviewBanner?.visible && (
+        <div
+          role="region"
+          aria-label="AI update notice"
+          className="bg-indigo-500/15 border-b border-indigo-500/30 px-4 py-2 flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300 font-medium z-30 shrink-0 select-none animate-in fade-in"
+        >
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-primary shrink-0" />
+            <span>
+              {t(
+                'project.aiChangedBanner',
+                'The AI changed this design. Compare with the previous version'
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="default"
+              onClick={() => setIsDiffModalOpen(true)}
+              className="h-6 px-2.5 text-xs font-semibold gap-1"
+            >
+              <History className="w-3 h-3" />
+              <span>{t('project.compareVersions', 'Compare')}</span>
+            </Button>
+            <button
+              onClick={dismissAiBanner}
+              title={t('project.dismissBanner', 'Dismiss')}
+              className="text-muted-foreground hover:text-foreground p-1 rounded"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -136,6 +184,9 @@ export function WorkspaceView() {
       />
       <ShortcutHelpModal isOpen={isShortcutHelpOpen} onClose={() => setIsShortcutHelpOpen(false)} />
       <DesignGuidelinesModal />
+      {isDiffModalOpen && (
+        <SchemaDiffModal isOpen={isDiffModalOpen} onClose={() => setIsDiffModalOpen(false)} />
+      )}
     </div>
   );
 }

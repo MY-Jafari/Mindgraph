@@ -9,6 +9,12 @@ const {
   writeAtomicFile,
   readProjectFileSafe,
   pruneOldBackups,
+  computeTextSha256,
+  computeFileSha256,
+  shouldReloadFile,
+  checkWriteConflict,
+  ProjectFileWatcher,
+  testMcpServerConnection,
 } = require('./pureLogic.cjs');
 
 // Stable app name ensures userData is %APPDATA%\Mindgraph on Windows
@@ -42,6 +48,8 @@ let flushCloseTimeout = null;
 
 const distDirectory = path.resolve(__dirname, '..', 'dist');
 const backupDirectory = path.join(app.getPath('userData'), 'backups');
+const lastKnownFileHash = new Map();
+const projectWatcher = new ProjectFileWatcher();
 
 function getWindowStateFile() {
   return path.join(app.getPath('userData'), 'window-state.json');
@@ -235,7 +243,9 @@ function registerIpcHandlers() {
 
     const targetPath = result.filePaths[0];
     const text = readProjectFileSafe(targetPath);
-    return { canceled: false, filePath: targetPath, text };
+    const hash = computeTextSha256(text);
+    lastKnownFileHash.set(path.resolve(targetPath), hash);
+    return { canceled: false, filePath: targetPath, text, hash };
   });
 
   // Native Save Dialog
@@ -263,14 +273,86 @@ function registerIpcHandlers() {
   // Read File
   ipcMain.handle('fs:read-project', async (event, filePath) => {
     validateIpcSender(event.senderFrame?.url, app.isPackaged);
-    return readProjectFileSafe(filePath);
+    const text = readProjectFileSafe(filePath);
+    const hash = computeTextSha256(text);
+    lastKnownFileHash.set(path.resolve(filePath), hash);
+    return { text, hash };
   });
 
-  // Write File Atomically
-  ipcMain.handle('fs:write-project', async (event, filePath, text) => {
+  // Write File Atomically with conflict protection
+  ipcMain.handle('fs:write-project', async (event, filePath, text, expectedHash) => {
     validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    const absPath = path.resolve(filePath);
+    const diskHash = computeFileSha256(absPath);
+    const knownHash = lastKnownFileHash.get(absPath);
+
+    const conflictCheck = checkWriteConflict(diskHash, expectedHash, knownHash);
+    if (!conflictCheck.canWrite) {
+      return {
+        success: false,
+        conflict: true,
+        diskHash: conflictCheck.diskHash,
+      };
+    }
+
     await writeAtomicFile(filePath, text);
+    const newHash = computeTextSha256(text);
+    lastKnownFileHash.set(absPath, newHash);
+    return { success: true, newHash };
+  });
+
+  // Watch Project File for External Changes
+  ipcMain.handle('fs:watch-project', (event, filePath) => {
+    validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    if (!filePath || typeof filePath !== 'string') return false;
+
+    const absPath = path.resolve(filePath);
+    const initialHash = computeFileSha256(absPath);
+    if (initialHash) {
+      lastKnownFileHash.set(absPath, initialHash);
+    }
+
+    projectWatcher.start(filePath, (changedPath) => {
+      const diskHash = computeFileSha256(changedPath);
+      const targetAbs = path.resolve(changedPath);
+      const knownHash = lastKnownFileHash.get(targetAbs);
+
+      if (shouldReloadFile(diskHash, knownHash)) {
+        lastKnownFileHash.set(targetAbs, diskHash);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('project:file-changed', {
+            filePath: changedPath,
+            hash: diskHash,
+          });
+        }
+      }
+    });
+
     return true;
+  });
+
+  // Stop Watching Project File
+  ipcMain.handle('fs:unwatch-project', (event) => {
+    validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    projectWatcher.stop();
+    return true;
+  });
+
+  // MCP Server Helpers
+  ipcMain.handle('mcp:get-path', (event) => {
+    validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    const devPath = path.resolve(__dirname, '..', 'mcp', 'dist', 'mindgraph-mcp.mjs');
+    const prodPath = path.join(process.resourcesPath || '', 'mcp', 'mindgraph-mcp.mjs');
+    return fs.existsSync(devPath) ? devPath : prodPath;
+  });
+
+  ipcMain.handle('mcp:test-connection', async (event, workspacePath) => {
+    validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    const devPath = path.resolve(__dirname, '..', 'mcp', 'dist', 'mindgraph-mcp.mjs');
+    const prodPath = path.join(process.resourcesPath || '', 'mcp', 'mindgraph-mcp.mjs');
+    const bundlePath = fs.existsSync(devPath) ? devPath : prodPath;
+    const ws = workspacePath || path.join(app.getPath('documents'), 'Mindgraph');
+    return testMcpServerConnection('node', bundlePath, ws);
   });
 
   // File Exists

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Shield, Globe, Database, Type, Check, Info, RefreshCw, Folder, Sparkles } from 'lucide-react';
+import { Settings, Shield, Globe, Database, Type, Check, Info, RefreshCw, Folder, Sparkles, Bot, Copy } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,18 @@ export function SettingsDialog() {
   const { activeProject, updateProjectMeta } = useProjectStore();
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [mcpServerPath, setMcpServerPath] = useState('');
+  const [isTestingMcp, setIsTestingMcp] = useState(false);
+  const [mcpTestResult, setMcpTestResult] = useState<{ success: boolean; toolCount?: number; error?: string } | null>(null);
+  const [copiedConfig, setCopiedConfig] = useState(false);
+
+  useEffect(() => {
+    if (window.mindgraphDesktop?.getMcpServerPath) {
+      window.mindgraphDesktop.getMcpServerPath().then((p) => {
+        if (p) setMcpServerPath(p);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!isDesktopApp() || !window.mindgraphDesktop?.onUpdateStatus) return;
@@ -75,6 +87,48 @@ export function SettingsDialog() {
         },
       });
     }
+  };
+
+  const defaultWorkspace = 'C:\\Users\\user\\Documents\\Mindgraph';
+  const workspaceDir = settings.mcpWorkspaceFolder || defaultWorkspace;
+  const serverPath = mcpServerPath || 'C:\\path\\to\\mcp\\dist\\mindgraph-mcp.mjs';
+
+  const mcpConfigSnippet = JSON.stringify(
+    {
+      mcpServers: {
+        mindgraph: {
+          command: 'node',
+          args: [serverPath],
+          env: {
+            MINDGRAPH_WORKSPACE: workspaceDir,
+          },
+        },
+      },
+    },
+    null,
+    2
+  );
+
+  const handleTestMcpConnection = async () => {
+    if (!window.mindgraphDesktop?.testMcpConnection) return;
+    setIsTestingMcp(true);
+    setMcpTestResult(null);
+    try {
+      const res = await window.mindgraphDesktop.testMcpConnection(workspaceDir);
+      setIsTestingMcp(false);
+      setMcpTestResult(res);
+    } catch (err) {
+      setIsTestingMcp(false);
+      setMcpTestResult({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const handleCopyMcpConfig = async () => {
+    try {
+      await navigator.clipboard.writeText(mcpConfigSnippet);
+      setCopiedConfig(true);
+      setTimeout(() => setCopiedConfig(false), 2000);
+    } catch {}
   };
 
   return (
@@ -204,6 +258,114 @@ export function SettingsDialog() {
                 </Button>
               </div>
             )}
+          </div>
+
+          {/* Section 3: Connect an AI Agent (MCP) */}
+          <div className="space-y-3 pt-2 border-t border-border">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Bot className="w-3.5 h-3.5 text-primary" />
+              <span>{t('settings.connectAgent', 'Connect an AI Agent (MCP)')}</span>
+            </h4>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              {t(
+                'settings.connectAgentDesc',
+                'Configure Claude Desktop, Cursor, or Antigravity to design schemas directly via MCP.'
+              )}
+            </p>
+
+            <div className="space-y-3 p-3 rounded-lg border border-border/80 bg-muted/20 text-xs">
+              {/* Workspace folder input */}
+              <div className="space-y-1">
+                <label className="font-semibold text-foreground block">
+                  {t('settings.mcpWorkspace', 'Workspace Directory (MINDGRAPH_WORKSPACE)')}
+                </label>
+                <input
+                  type="text"
+                  value={settings.mcpWorkspaceFolder || ''}
+                  onChange={(e) => updateSettings({ mcpWorkspaceFolder: e.target.value })}
+                  placeholder={defaultWorkspace}
+                  className="w-full text-xs px-2.5 py-1.5 rounded-md border border-border bg-background focus:ring-2 focus:ring-primary font-mono"
+                />
+              </div>
+
+              {/* MCP Server Path */}
+              <div className="space-y-1">
+                <label className="font-semibold text-foreground block">
+                  {t('settings.mcpServerPath', 'MCP Server Bundle Path')}
+                </label>
+                <div className="px-2.5 py-1.5 rounded-md border border-border bg-background font-mono text-[11px] text-muted-foreground select-all truncate">
+                  {mcpServerPath || 'mcp/dist/mindgraph-mcp.mjs'}
+                </div>
+              </div>
+
+              {/* Ready to copy client config */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-foreground">
+                    {t('settings.configSnippet', 'Client Configuration Snippet (JSON)')}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCopyMcpConfig}
+                    className="h-6 px-2 text-[10px] gap-1"
+                  >
+                    {copiedConfig ? (
+                      <Check className="w-3 h-3 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-3 h-3" />
+                    )}
+                    <span>{t('settings.copyConfig', 'Copy Configuration')}</span>
+                  </Button>
+                </div>
+                <pre className="p-2.5 rounded bg-background border border-border text-[11px] font-mono overflow-x-auto text-foreground select-all leading-relaxed">
+                  {mcpConfigSnippet}
+                </pre>
+              </div>
+
+              {/* Test Connection Button */}
+              {isDesktopApp() && (
+                <div className="flex items-center justify-between pt-1">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={handleTestMcpConnection}
+                    disabled={isTestingMcp}
+                    className="text-xs h-7 px-3 gap-1.5"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${isTestingMcp ? 'animate-spin' : ''}`} />
+                    <span>
+                      {isTestingMcp
+                        ? t('settings.testingConnection', 'Testing...')
+                        : t('settings.testConnection', 'Test Connection')}
+                    </span>
+                  </Button>
+
+                  {mcpTestResult && (
+                    <div className="text-[11px]">
+                      {mcpTestResult.success ? (
+                        <span className="text-emerald-500 font-semibold flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>
+                            {t('settings.testSuccess', {
+                              count: mcpTestResult.toolCount,
+                              defaultValue: `Connected! (${mcpTestResult.toolCount} tools available)`,
+                            })}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="text-rose-500 font-semibold truncate max-w-xs block">
+                          {t('settings.testFailed', {
+                            error: mcpTestResult.error,
+                            defaultValue: `Failed: ${mcpTestResult.error}`,
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Section 3: About Application & Desktop Controls */}

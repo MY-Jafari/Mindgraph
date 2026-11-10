@@ -89,7 +89,12 @@
     "deleteProjectConfirm": "آیا از حذف این پروژه مطمئن هستید؟ این عملیات قابل بازگشت نیست.",
     "deleteDocConfirm": "آیا از حذف این سند مطمئن هستید؟",
     "untitledProject": "پروژه بدون عنوان",
-    "untitledDoc": "سند بدون عنوان"
+    "untitledDoc": "سند بدون عنوان",
+    "externalUpdateToast": "توسط ابزار خارجی به‌روزرسانی شد",
+    "reloadFromFile": "بارگذاری مجدد از فایل",
+    "aiChangedBanner": "هوش مصنوعی این طراحی را تغییر داده است. نسخه فعلی را با نسخه قبل مقایسه کنید",
+    "compareVersions": "مقایسه",
+    "dismissBanner": "بستن"
   },
   "theme": {
     "toggleTheme": "تغییر تم",
@@ -215,7 +220,18 @@
     "upToDate": "مایندگراف به روز است.",
     "updateError": "خطا در بررسی بروزرسانی: {{message}}",
     "localBackups": "پشتیبان‌های محلی",
-    "openBackupFolder": "باز کردن پوشه پشتیبان"
+    "openBackupFolder": "باز کردن پوشه پشتیبان",
+    "connectAgent": "اتصال دستیار هوش مصنوعی (MCP)",
+    "connectAgentDesc": "تنظیم کلود، کرسر یا آنتی‌گرویتی برای طراحی مستقیم پایگاه داده از طریق MCP.",
+    "mcpServerPath": "مسیر فایل سرور MCP",
+    "mcpWorkspace": "پوشه کاری (MINDGRAPH_WORKSPACE)",
+    "configSnippet": "پیکربندی کلاینت (JSON)",
+    "copyConfig": "کپی پیکربندی",
+    "configCopied": "پیکربندی MCP در حافظه کپی شد!",
+    "testConnection": "تست اتصال",
+    "testingConnection": "در حال تست...",
+    "testSuccess": "اتصال موفقیت‌آمیز بود! ({{count}} ابزار در دسترس است)",
+    "testFailed": "اتصال ناموفق بود: {{error}}"
   },
   "limits": {
     "tables": "حداکثر سقف مجاز جداول ({{cap}}) تکمیل شده است.",

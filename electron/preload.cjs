@@ -13,8 +13,27 @@ contextBridge.exposeInMainWorld('mindgraphDesktop', {
   readProjectFile: (filePath) =>
     ipcRenderer.invoke('fs:read-project', filePath),
 
-  writeProjectFile: (filePath, text) =>
-    ipcRenderer.invoke('fs:write-project', filePath, text),
+  writeProjectFile: (filePath, text, expectedHash) =>
+    ipcRenderer.invoke('fs:write-project', filePath, text, expectedHash),
+
+  watchProjectFile: (filePath, callback) => {
+    ipcRenderer.invoke('fs:watch-project', filePath);
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('project:file-changed', handler);
+    return () => {
+      ipcRenderer.removeListener('project:file-changed', handler);
+      ipcRenderer.invoke('fs:unwatch-project');
+    };
+  },
+
+  unwatchProjectFile: () =>
+    ipcRenderer.invoke('fs:unwatch-project'),
+
+  getMcpServerPath: () =>
+    ipcRenderer.invoke('mcp:get-path'),
+
+  testMcpConnection: (workspacePath) =>
+    ipcRenderer.invoke('mcp:test-connection', workspacePath),
 
   fileExists: (filePath) =>
     ipcRenderer.invoke('fs:file-exists', filePath),

@@ -17,13 +17,40 @@ export interface SaveFileDialogResult {
   filePath?: string;
 }
 
+export interface WriteProjectFileResult {
+  success: boolean;
+  conflict?: boolean;
+  newHash?: string;
+  diskHash?: string;
+}
+
+export interface McpConnectionTestResult {
+  success: boolean;
+  toolCount?: number;
+  tools?: string[];
+  error?: string;
+}
+
+export interface FileChangedEvent {
+  filePath: string;
+  hash: string;
+}
+
 export interface DesktopBridge {
   isDesktop: true;
   getVersion: () => Promise<string>;
-  openProjectDialog: () => Promise<OpenFileDialogResult>;
+  openProjectDialog: () => Promise<OpenFileDialogResult & { hash?: string }>;
   saveProjectDialog: (suggestedName?: string) => Promise<SaveFileDialogResult>;
-  readProjectFile: (filePath: string) => Promise<string>;
-  writeProjectFile: (filePath: string, text: string) => Promise<void>;
+  readProjectFile: (filePath: string) => Promise<{ text: string; hash?: string } | string>;
+  writeProjectFile: (
+    filePath: string,
+    text: string,
+    expectedHash?: string
+  ) => Promise<WriteProjectFileResult | boolean>;
+  watchProjectFile: (filePath: string, cb: (data: FileChangedEvent) => void) => () => void;
+  unwatchProjectFile: () => Promise<boolean>;
+  getMcpServerPath: () => Promise<string>;
+  testMcpConnection: (workspacePath?: string) => Promise<McpConnectionTestResult>;
   fileExists: (filePath: string) => Promise<boolean>;
   onBeforeClose: (cb: () => void) => () => void;
   confirmClose: () => void;

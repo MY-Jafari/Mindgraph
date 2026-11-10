@@ -14,6 +14,8 @@ export interface SaveResult {
   ref?: FileRef | null;
   error?: string;
   warning?: string;
+  hash?: string;
+  conflict?: boolean;
 }
 
 export interface OpenResult {
@@ -23,6 +25,7 @@ export interface OpenResult {
   ref?: FileRef | null;
   error?: string;
   warning?: string;
+  hash?: string;
 }
 
 export interface ProjectFileService {
@@ -30,7 +33,7 @@ export interface ProjectFileService {
   save(
     project: Project,
     ref?: FileRef | null,
-    options?: { saveAs?: boolean }
+    options?: { saveAs?: boolean; expectedHash?: string }
   ): Promise<SaveResult>;
   checkExists(ref: FileRef): Promise<boolean>;
   writeFile(ref: FileRef, content: string): Promise<void>;
@@ -114,7 +117,8 @@ class DesktopFileService implements ProjectFileService {
         return { success: false, error: 'Open was cancelled.' };
       }
 
-      const json = JSON.parse(dialogRes.text);
+      const text = typeof dialogRes.text === 'string' ? dialogRes.text : (dialogRes.text as any).text;
+      const json = JSON.parse(text);
       const project = migrateProject(json);
       await restoreProjectBlobs(project);
 
@@ -124,6 +128,7 @@ class DesktopFileService implements ProjectFileService {
         project,
         fileName,
         ref: { kind: 'path', path: dialogRes.filePath },
+        hash: dialogRes.hash,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Invalid project file format';
@@ -134,7 +139,7 @@ class DesktopFileService implements ProjectFileService {
   async save(
     project: Project,
     ref?: FileRef | null,
-    options?: { saveAs?: boolean }
+    options?: { saveAs?: boolean; expectedHash?: string }
   ): Promise<SaveResult> {
     const bridge = window.mindgraphDesktop;
     if (!bridge) {
@@ -160,14 +165,26 @@ class DesktopFileService implements ProjectFileService {
         targetPath = dialogRes.filePath;
       }
 
-      await bridge.writeProjectFile(targetPath, jsonContent);
+      const writeRes = await bridge.writeProjectFile(targetPath, jsonContent, options?.expectedHash);
 
+      if (typeof writeRes === 'object' && writeRes.conflict) {
+        return {
+          success: false,
+          conflict: true,
+          error: 'FILE_MODIFIED_EXTERNALLY',
+          fileName: targetPath.split(/[\\/]/).pop() || targetPath,
+          ref: { kind: 'path', path: targetPath },
+        };
+      }
+
+      const newHash = typeof writeRes === 'object' ? writeRes.newHash : undefined;
       const fileName = targetPath.split(/[\\/]/).pop() || targetPath;
       return {
         success: true,
         fileName,
         ref: { kind: 'path', path: targetPath },
         warning,
+        hash: newHash,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to save project file';
