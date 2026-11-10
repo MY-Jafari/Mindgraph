@@ -4,6 +4,7 @@ import type {
   Cardinality,
   FKAction,
   CardinalityNotation,
+  AIGuidelines,
 } from '@/features/projects/types';
 import type { LintIssue } from '@/features/dbdesigner/services/linter';
 
@@ -22,6 +23,10 @@ export type {
   Cardinality,
   FKAction,
   CardinalityNotation,
+  AIGuidelines,
+  AIGuidelinesConventions,
+  GuidelinesNameCase,
+  GuidelinesTableNaming,
 } from '@/features/projects/types';
 
 export const SCHEMA_LIMITS = {
@@ -99,6 +104,8 @@ export interface ApplySchemaSpecOptions {
   mode?: 'merge' | 'replace';
   dialect?: SQLDialect;
   confirmReplace?: boolean;
+  guidelines?: AIGuidelines;
+  applyGuidelines?: boolean;
 }
 
 export interface SchemaSpecSummary {
@@ -115,4 +122,5 @@ export interface ApplySchemaSpecResult {
   summary: SchemaSpecSummary;
   warnings: string[];
   lint: LintIssue[];
+  guidelineDefaultsApplied?: string[];
 }

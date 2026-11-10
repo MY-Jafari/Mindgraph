@@ -24,6 +24,11 @@ import {
   coreSaveSnapshot,
   coreApplyAutoLayout,
   applySchemaSpec,
+  inferConventions,
+  reviewDesignConventions,
+  formatGuidelinesAsPrompt,
+  DEFAULT_GUIDELINES_QUESTIONNAIRE,
+  type AIGuidelines,
 } from '@/core';
 import type {
   SQLDialect,
@@ -141,7 +146,11 @@ export function createMindgraphServer(): McpServer {
           };
         });
 
-        const guidelinesPresent = Boolean((project.settings as any)?.aiGuidelines?.brief);
+        const guidelinesPresent = Boolean(
+          (project.settings as any)?.aiGuidelines &&
+            ((project.settings as any).aiGuidelines.brief ||
+              (project.settings as any).aiGuidelines.conventions)
+        );
 
         const summary = {
           name: project.name,
@@ -524,6 +533,151 @@ export function createMindgraphServer(): McpServer {
     }
   );
 
+  // 8. get_design_guidelines
+  server.tool(
+    'get_design_guidelines',
+    'Get stored AI database design guidelines (domain brief, naming conventions, primary key format, audit timestamps, soft delete, FK patterns, dialect). Returns questionnaire if no guidelines are set.',
+    {
+      file: z.string().describe('Relative path to the project file in workspace'),
+    },
+    { readOnlyHint: true },
+    async ({ file }) => {
+      try {
+        const { project } = await readProject(file);
+        const guidelines = project.settings?.aiGuidelines;
+        const hasGuidelines = Boolean(
+          guidelines && (guidelines.brief || guidelines.conventions)
+        );
+
+        if (!hasGuidelines) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify(
+                  {
+                    hasGuidelines: false,
+                    message:
+                      'No design guidelines are stored in this project yet. Ask the user the following questionnaire to gather their conventions, then save them with set_design_guidelines.',
+                    questionnaire: DEFAULT_GUIDELINES_QUESTIONNAIRE,
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+          };
+        }
+
+        const prompt = formatGuidelinesAsPrompt(guidelines, project.name);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  hasGuidelines: true,
+                  updatedAt: guidelines?.updatedAt,
+                  prompt,
+                  guidelines,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return formatErrorResponse(err.message);
+      }
+    }
+  );
+
+  // 9. infer_conventions
+  server.tool(
+    'infer_conventions',
+    'Analyse an existing database schema to infer design conventions (name case, plural/singular tables, primary key style, foreign key pattern, timestamps, soft delete, common types). Does not modify the project.',
+    {
+      file: z.string().describe('Relative path to the project file in workspace'),
+      document: z
+        .string()
+        .optional()
+        .describe('Document ID or title (defaults to first DB schema document)'),
+    },
+    { readOnlyHint: true },
+    async ({ file, document }) => {
+      try {
+        const { project } = await readProject(file);
+        const { content } = resolveDBSchemaDocument(project, document);
+
+        const result = inferConventions(content);
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return formatErrorResponse(err.message);
+      }
+    }
+  );
+
+  // 10. review_design
+  server.tool(
+    'review_design',
+    'Review a database schema against the project design guidelines and standard lint rules. Returns prioritized convention deviations and lint issues with exact fixes.',
+    {
+      file: z.string().describe('Relative path to the project file in workspace'),
+      document: z
+        .string()
+        .optional()
+        .describe('Document ID or title (defaults to first DB schema document)'),
+    },
+    { readOnlyHint: true },
+    async ({ file, document }) => {
+      try {
+        const { project } = await readProject(file);
+        const { content } = resolveDBSchemaDocument(project, document);
+
+        const lintIssues = validateSchema(
+          content.tables,
+          content.relationships,
+          content.dialect
+        );
+        const conventionIssues = reviewDesignConventions(
+          content,
+          project.settings?.aiGuidelines
+        );
+
+        const report = {
+          hasGuidelines: Boolean(
+            project.settings?.aiGuidelines &&
+              (project.settings.aiGuidelines.brief ||
+                project.settings.aiGuidelines.conventions)
+          ),
+          lintIssuesCount: lintIssues.length,
+          conventionIssuesCount: conventionIssues.length,
+          conventionIssues,
+          lintIssues,
+        };
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(report, null, 2),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return formatErrorResponse(err.message);
+      }
+    }
+  );
+
   // ============================================================================
   // WRITE TOOLS
   // ============================================================================
@@ -584,6 +738,11 @@ export function createMindgraphServer(): McpServer {
         .boolean()
         .optional()
         .describe('Explicit confirmation flag required if mode is replace'),
+      applyGuidelines: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe('Automatically apply project design guidelines (timestamps, soft-delete, default PK, FK actions)'),
       dryRun: z
         .boolean()
         .optional()
@@ -598,7 +757,17 @@ export function createMindgraphServer(): McpServer {
         .describe('Optimistic concurrency control token'),
     },
     { destructiveHint: false, idempotentHint: true },
-    async ({ file, document, spec, mode, confirmReplace, dryRun, snapshotName, expectedRevision }) => {
+    async ({
+      file,
+      document,
+      spec,
+      mode,
+      confirmReplace,
+      applyGuidelines,
+      dryRun,
+      snapshotName,
+      expectedRevision,
+    }) => {
       try {
         const { project, revision } = await readProject(file);
         const { content, doc } = resolveDBSchemaDocument(project, document);
@@ -612,6 +781,8 @@ export function createMindgraphServer(): McpServer {
           mode,
           confirmReplace,
           dialect: content.dialect,
+          guidelines: project.settings?.aiGuidelines,
+          applyGuidelines: applyGuidelines ?? true,
         });
 
         // Compute diff
@@ -627,6 +798,7 @@ export function createMindgraphServer(): McpServer {
             summary: applyRes.summary,
             warnings: applyRes.warnings,
             lint: applyRes.lint,
+            guidelineDefaultsApplied: applyRes.guidelineDefaultsApplied,
             migrationSql,
           };
           return {
@@ -650,6 +822,7 @@ export function createMindgraphServer(): McpServer {
           summary: applyRes.summary,
           warnings: applyRes.warnings,
           lintCount: applyRes.lint.length,
+          guidelineDefaultsApplied: applyRes.guidelineDefaultsApplied,
           migrationSql,
         };
 
@@ -1064,6 +1237,120 @@ export function createMindgraphServer(): McpServer {
     }
   );
 
+  // 15. set_design_guidelines
+  server.tool(
+    'set_design_guidelines',
+    'Set or update the project AI database design guidelines (domain brief, naming conventions, timestamps, soft delete, FK rules).',
+    {
+      file: z.string().describe('Relative path to the project file in workspace'),
+      guidelines: z
+        .object({
+          brief: z
+            .string()
+            .max(20000)
+            .optional()
+            .describe('Free-form markdown domain brief and constraints (max 20,000 chars)'),
+          conventions: z
+            .object({
+              dialect: z
+                .enum(['postgresql', 'mysql', 'mariadb', 'sqlite', 'sqlserver', 'oracle'])
+                .optional(),
+              nameCase: z
+                .enum(['snake_case', 'camelCase', 'PascalCase', 'kebab-case'])
+                .optional(),
+              tableNaming: z.enum(['plural', 'singular']).optional(),
+              primaryKey: z
+                .object({
+                  name: z.string().min(1).max(100),
+                  type: z.string().min(1).max(100),
+                  autoIncrement: z.boolean().optional(),
+                })
+                .optional(),
+              foreignKeyPattern: z.string().max(100).optional(),
+              timestamps: z.boolean().optional(),
+              softDelete: z.boolean().optional(),
+              defaultOnDelete: z
+                .enum(['CASCADE', 'SET NULL', 'SET DEFAULT', 'RESTRICT', 'NO ACTION'])
+                .optional(),
+              defaultOnUpdate: z
+                .enum(['CASCADE', 'SET NULL', 'SET DEFAULT', 'RESTRICT', 'NO ACTION'])
+                .optional(),
+              requireComments: z.boolean().optional(),
+              preferredTypes: z.record(z.string().max(50), z.string().max(100)).optional(),
+              junctionTableNaming: z.string().max(100).optional(),
+              rules: z.array(z.string().max(500)).max(50).optional(),
+            })
+            .optional(),
+        })
+        .describe('AI guidelines payload'),
+      merge: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe('If true, merges with existing guidelines instead of overwriting'),
+      expectedRevision: z.string().optional().describe('Optimistic concurrency control token'),
+    },
+    { destructiveHint: false, idempotentHint: true },
+    async ({ file, guidelines, merge, expectedRevision }) => {
+      try {
+        const { project } = await readProject(file);
+
+        const existingGuidelines = project.settings?.aiGuidelines || {};
+        let finalGuidelines: AIGuidelines;
+
+        if (merge) {
+          finalGuidelines = {
+            brief: guidelines.brief !== undefined ? guidelines.brief : existingGuidelines.brief,
+            conventions: {
+              ...(existingGuidelines.conventions || {}),
+              ...(guidelines.conventions || {}),
+            },
+            updatedAt: new Date().toISOString(),
+          };
+        } else {
+          finalGuidelines = {
+            ...guidelines,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+
+        // Keep settings synchronized
+        project.settings = {
+          ...project.settings,
+          aiGuidelines: finalGuidelines,
+          ...(finalGuidelines.conventions?.dialect
+            ? { defaultDialect: finalGuidelines.conventions.dialect }
+            : {}),
+          ...(finalGuidelines.conventions?.nameCase &&
+          ['snake_case', 'camelCase', 'PascalCase'].includes(finalGuidelines.conventions.nameCase)
+            ? { namingConvention: finalGuidelines.conventions.nameCase as any }
+            : {}),
+        };
+        project.updatedAt = new Date().toISOString();
+
+        const newRevision = await writeProject(file, project, { expectedRevision });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(
+                {
+                  success: true,
+                  revision: newRevision,
+                  guidelines: finalGuidelines,
+                },
+                null,
+                2
+              ),
+            },
+          ],
+        };
+      } catch (err: any) {
+        return formatErrorResponse(err.message);
+      }
+    }
+  );
+
   // ============================================================================
   // RESOURCES
   // ============================================================================
@@ -1075,32 +1362,13 @@ export function createMindgraphServer(): McpServer {
     { mimeType: 'text/markdown' },
     async (uri, { file }) => {
       try {
-        const { project } = await readProject(String(file));
-        const guidelines = (project.settings as any)?.aiGuidelines;
-        if (!guidelines || !guidelines.brief) {
-          return {
-            contents: [
-              {
-                uri: uri.href,
-                text: `# Design Guidelines for ${project.name}\n\nNo design guidelines have been stored yet for this project.`,
-              },
-            ],
-          };
-        }
-
-        const md = [
-          `# Design Guidelines for ${project.name}`,
-          '',
-          guidelines.brief,
-          '',
-          '## Conventions',
-          '```json',
-          JSON.stringify(guidelines.conventions || {}, null, 2),
-          '```',
-        ].join('\n');
+        const filePath = Array.isArray(file) ? file.join('/') : file;
+        const { project } = await readProject(String(filePath));
+        const guidelines = project.settings?.aiGuidelines;
+        const promptText = formatGuidelinesAsPrompt(guidelines, project.name);
 
         return {
-          contents: [{ uri: uri.href, text: md }],
+          contents: [{ uri: uri.href, text: promptText }],
         };
       } catch (err: any) {
         return {

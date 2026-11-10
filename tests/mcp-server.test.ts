@@ -54,7 +54,7 @@ describe('Phase C: The MCP Server (mcp/dist/mindgraph-mcp.mjs)', () => {
     } catch {}
   });
 
-  it('1. listTools returns the 14 expected tools and their schemas', async () => {
+  it('1. listTools returns the 18 expected tools and their schemas', async () => {
     const res = await client!.listTools();
     const toolNames = res.tools.map((t) => t.name).sort();
 
@@ -66,13 +66,17 @@ describe('Phase C: The MCP Server (mcp/dist/mindgraph-mcp.mjs)', () => {
       'diff_schema',
       'export_schema',
       'generate_seed_sql',
+      'get_design_guidelines',
       'get_project',
       'get_schema',
       'import_schema',
+      'infer_conventions',
       'lint_schema',
       'list_projects',
       'list_snapshots',
+      'review_design',
       'save_snapshot',
+      'set_design_guidelines',
     ].sort();
 
     expect(toolNames).toEqual(expectedTools);
@@ -428,6 +432,132 @@ describe('Phase C: The MCP Server (mcp/dist/mindgraph-mcp.mjs)', () => {
       uri: 'mindgraph://schema/resource_test.mindgraph.json/default',
     });
     expect((schemaResource.contents[0] as any).text).toBeDefined();
+  });
+
+  it('9. Phase D MCP Tools: get_design_guidelines, set_design_guidelines, infer_conventions, review_design, and apply_schema_spec with guidelines', async () => {
+    const file = 'guidelines_test.mindgraph.json';
+
+    // Step A: create project
+    await client!.callTool({
+      name: 'create_project',
+      arguments: { file, name: 'Guidelines Project', dialect: 'postgresql' },
+    });
+
+    // Step B: get_design_guidelines on empty project returns questionnaire
+    const emptyGuideRes: any = await client!.callTool({
+      name: 'get_design_guidelines',
+      arguments: { file },
+    });
+    const emptyGuideData = JSON.parse(emptyGuideRes.content[0].text);
+    expect(emptyGuideData.hasGuidelines).toBe(false);
+    expect(emptyGuideData.questionnaire).toBeDefined();
+    expect(emptyGuideData.questionnaire.length).toBeGreaterThan(0);
+
+    // Step C: set_design_guidelines
+    const setGuideRes: any = await client!.callTool({
+      name: 'set_design_guidelines',
+      arguments: {
+        file,
+        guidelines: {
+          brief: 'Hospital management system. Strict HIPAA privacy and patient safety.',
+          conventions: {
+            dialect: 'postgresql',
+            nameCase: 'snake_case',
+            tableNaming: 'plural',
+            primaryKey: { name: 'id', type: 'uuid' },
+            foreignKeyPattern: '{table_singular}_id',
+            timestamps: true,
+            softDelete: true,
+            defaultOnDelete: 'CASCADE',
+            defaultOnUpdate: 'CASCADE',
+            rules: ['Never store unhashed patient SSN.', 'All tables require UUID PKs.'],
+          },
+        },
+      },
+    });
+    const setGuideData = JSON.parse(setGuideRes.content[0].text);
+    expect(setGuideData.success).toBe(true);
+    expect(setGuideData.revision).toBeDefined();
+
+    // Step D: get_design_guidelines now returns populated prompt and guidelines
+    const popGuideRes: any = await client!.callTool({
+      name: 'get_design_guidelines',
+      arguments: { file },
+    });
+    const popGuideData = JSON.parse(popGuideRes.content[0].text);
+    expect(popGuideData.hasGuidelines).toBe(true);
+    expect(popGuideData.prompt).toContain('Hospital management system');
+    expect(popGuideData.prompt).toContain('Never store unhashed patient SSN');
+    expect(popGuideData.guidelines.conventions.primaryKey).toEqual({
+      name: 'id',
+      type: 'uuid',
+    });
+
+    // Step E: apply_schema_spec automatically applies guidelines
+    // Spec provides tables without PKs or timestamps
+    const applySpecRes: any = await client!.callTool({
+      name: 'apply_schema_spec',
+      arguments: {
+        file,
+        applyGuidelines: true,
+        spec: {
+          tables: [
+            {
+              name: 'wards',
+              columns: [{ name: 'ward_name', type: 'varchar(100)' }],
+            },
+            {
+              name: 'beds',
+              columns: [
+                { name: 'bed_number', type: 'varchar(20)' },
+                {
+                  name: 'ward_id',
+                  type: 'uuid',
+                  references: { table: 'wards' },
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    const applySpecData = JSON.parse(applySpecRes.content[0].text);
+    expect(applySpecData.summary.tablesAdded).toBe(2);
+    expect(applySpecData.guidelineDefaultsApplied).toBeDefined();
+    expect(
+      applySpecData.guidelineDefaultsApplied.some((msg: string) => msg.includes('default primary key'))
+    ).toBe(true);
+    expect(
+      applySpecData.guidelineDefaultsApplied.some((msg: string) => msg.includes('timestamps'))
+    ).toBe(true);
+
+    // Step F: infer_conventions on the populated project
+    const inferRes: any = await client!.callTool({
+      name: 'infer_conventions',
+      arguments: { file },
+    });
+    const inferData = JSON.parse(inferRes.content[0].text);
+    expect(inferData.conventions.nameCase).toBe('snake_case');
+    expect(inferData.conventions.tableNaming).toBe('plural');
+    expect(inferData.conventions.primaryKey.name).toBe('id');
+    expect(inferData.conventions.primaryKey.type).toBe('uuid');
+    expect(inferData.conventions.timestamps).toBe(true);
+
+    // Step G: review_design against guidelines
+    const reviewRes: any = await client!.callTool({
+      name: 'review_design',
+      arguments: { file },
+    });
+    const reviewData = JSON.parse(reviewRes.content[0].text);
+    expect(reviewData.hasGuidelines).toBe(true);
+    expect(reviewData.conventionIssues).toBeDefined();
+    expect(reviewData.lintIssues).toBeDefined();
+
+    // Step H: read resource mindgraph://guidelines/{file}
+    const guideResource = await client!.readResource({
+      uri: `mindgraph://guidelines/${file}`,
+    });
+    expect((guideResource.contents[0] as any).text).toContain('Hospital management system');
   });
 
   it('8. Stdout cleanliness: every byte on stdout is valid MCP JSON-RPC', async () => {

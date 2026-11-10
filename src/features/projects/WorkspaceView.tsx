@@ -8,6 +8,7 @@ import { MindTreeCanvas } from '@/features/mindtree/MindTreeCanvas';
 import { DBSchemaCanvas } from '@/features/dbdesigner/DBSchemaCanvas';
 import { CommandPalette } from '@/shared/components/CommandPalette';
 import { ShortcutHelpModal } from '@/shared/components/ShortcutHelpModal';
+import { DesignGuidelinesModal } from './components/DesignGuidelinesModal';
 
 const UnifiedExportDialog = lazy(() =>
   import('@/features/export/components/UnifiedExportDialog').then((module) => ({
@@ -134,6 +135,7 @@ export function WorkspaceView() {
         onOpenShortcutHelp={() => setIsShortcutHelpOpen(true)}
       />
       <ShortcutHelpModal isOpen={isShortcutHelpOpen} onClose={() => setIsShortcutHelpOpen(false)} />
+      <DesignGuidelinesModal />
     </div>
   );
 }

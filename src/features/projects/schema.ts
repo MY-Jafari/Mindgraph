@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import type { Project, Document, SQLDialect, NamingConvention, MindTreeContent, DBSchemaContent } from './types';
+import type {
+  Project,
+  Document,
+  SQLDialect,
+  NamingConvention,
+  MindTreeContent,
+  DBSchemaContent,
+} from './types';
 
 export const CURRENT_SCHEMA_VERSION = 1;
 
@@ -18,10 +25,59 @@ export const NamingConventionSchema = z.enum([
   'PascalCase',
 ]);
 
+export const FKActionSchema = z.enum([
+  'CASCADE',
+  'SET NULL',
+  'SET DEFAULT',
+  'RESTRICT',
+  'NO ACTION',
+]);
+
+export const GuidelinesNameCaseSchema = z.enum([
+  'snake_case',
+  'camelCase',
+  'PascalCase',
+  'kebab-case',
+]);
+
+export const GuidelinesTableNamingSchema = z.enum([
+  'plural',
+  'singular',
+]);
+
+export const AIGuidelinesConventionsSchema = z.object({
+  dialect: SQLDialectSchema.optional(),
+  nameCase: GuidelinesNameCaseSchema.optional(),
+  tableNaming: GuidelinesTableNamingSchema.optional(),
+  primaryKey: z
+    .object({
+      name: z.string().min(1).max(100),
+      type: z.string().min(1).max(100),
+      autoIncrement: z.boolean().optional(),
+    })
+    .optional(),
+  foreignKeyPattern: z.string().max(100).optional(),
+  timestamps: z.boolean().optional(),
+  softDelete: z.boolean().optional(),
+  defaultOnDelete: FKActionSchema.optional(),
+  defaultOnUpdate: FKActionSchema.optional(),
+  requireComments: z.boolean().optional(),
+  preferredTypes: z.record(z.string().max(50), z.string().max(100)).optional(),
+  junctionTableNaming: z.string().max(100).optional(),
+  rules: z.array(z.string().max(500)).max(50).optional(),
+});
+
+export const AIGuidelinesSchema = z.object({
+  brief: z.string().max(20_000).optional(),
+  conventions: AIGuidelinesConventionsSchema.optional(),
+  updatedAt: z.string().optional(),
+});
+
 export const ProjectSettingsSchema = z.object({
   defaultDialect: SQLDialectSchema.default('postgresql'),
   namingConvention: NamingConventionSchema.default('snake_case'),
   autosaveIntervalMs: z.number().int().min(100).max(60_000).default(800),
+  aiGuidelines: AIGuidelinesSchema.optional(),
 });
 
 export const ViewportSchema = z.object({
@@ -136,8 +192,8 @@ export const DBRelationshipSchema = z.object({
   targetTableId: z.string(),
   targetColumnId: z.string(),
   cardinality: z.enum(['one-to-one', 'one-to-many', 'many-to-many']),
-  onUpdate: z.enum(['CASCADE', 'SET NULL', 'SET DEFAULT', 'RESTRICT', 'NO ACTION']).optional(),
-  onDelete: z.enum(['CASCADE', 'SET NULL', 'SET DEFAULT', 'RESTRICT', 'NO ACTION']).optional(),
+  onUpdate: FKActionSchema.optional(),
+  onDelete: FKActionSchema.optional(),
   notation: z.enum(['crows-foot', 'idef1x', 'chen', 'uml']).optional(),
 });
 
@@ -304,6 +360,33 @@ export function migrateProject(rawData: unknown, warningsOut?: string[]): Projec
       if (!doc || typeof doc !== 'object') return doc;
       return { ...(doc as Record<string, unknown>), projectId };
     });
+  }
+
+  // Keep settings.defaultDialect and settings.namingConvention consistent with aiGuidelines
+  if (migrated.settings && typeof migrated.settings === 'object') {
+    const s = { ...(migrated.settings as Record<string, unknown>) };
+    if (s.aiGuidelines && typeof s.aiGuidelines === 'object') {
+      const g = { ...(s.aiGuidelines as Record<string, unknown>) };
+      if (g.conventions && typeof g.conventions === 'object') {
+        const c = { ...(g.conventions as Record<string, unknown>) };
+        if (typeof c.dialect === 'string' && SQLDialectSchema.safeParse(c.dialect).success) {
+          s.defaultDialect = c.dialect;
+        } else if (typeof s.defaultDialect === 'string' && !c.dialect && SQLDialectSchema.safeParse(s.defaultDialect).success) {
+          c.dialect = s.defaultDialect;
+        }
+        if (
+          typeof c.nameCase === 'string' &&
+          NamingConventionSchema.safeParse(c.nameCase).success
+        ) {
+          s.namingConvention = c.nameCase;
+        } else if (typeof s.namingConvention === 'string' && !c.nameCase && NamingConventionSchema.safeParse(s.namingConvention).success) {
+          c.nameCase = s.namingConvention;
+        }
+        g.conventions = c;
+      }
+      s.aiGuidelines = g;
+    }
+    migrated.settings = s;
   }
 
   // Self-healing repair for dangling database references (D3 defect repair)

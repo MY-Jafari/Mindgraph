@@ -9,6 +9,8 @@ import type {
   RecentProjectMeta,
   MindTreeContent,
   Viewport,
+  AIGuidelines,
+  ProjectSettings,
 } from './types';
 import {
   createDefaultProject,
@@ -73,6 +75,7 @@ interface ProjectState {
   createProject: (name?: string, dialect?: SQLDialect) => Promise<Project>;
   closeProject: () => Promise<void>;
   updateProjectMeta: (patch: Partial<Pick<Project, 'name' | 'description' | 'settings'>>) => void;
+  updateAIGuidelines: (guidelines: AIGuidelines) => void;
 
   // Document Actions
   setActiveDocument: (documentId: string) => void;
@@ -377,6 +380,37 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const updated: Project = {
       ...activeProject,
       ...patch,
+      updatedAt: new Date().toISOString(),
+    };
+
+    set({ activeProject: updated, saveStatus: 'unsaved' });
+    get().triggerAutosave();
+  },
+
+  updateAIGuidelines: (guidelines) => {
+    const { activeProject } = get();
+    if (!activeProject) return;
+
+    const existingSettings = activeProject.settings;
+    const conv = guidelines.conventions;
+    const newSettings: ProjectSettings = {
+      ...existingSettings,
+      aiGuidelines: {
+        ...guidelines,
+        updatedAt: new Date().toISOString(),
+      },
+      ...(conv?.dialect ? { defaultDialect: conv.dialect } : {}),
+      ...(conv?.nameCase &&
+      (conv.nameCase === 'snake_case' ||
+        conv.nameCase === 'camelCase' ||
+        conv.nameCase === 'PascalCase')
+        ? { namingConvention: conv.nameCase }
+        : {}),
+    };
+
+    const updated: Project = {
+      ...activeProject,
+      settings: newSettings,
       updatedAt: new Date().toISOString(),
     };
 

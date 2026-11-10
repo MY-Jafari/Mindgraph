@@ -31,9 +31,12 @@ function loadStoredFromLocalStorage(): Partial<AppSettings> {
 interface SettingsState {
   settings: AppSettings;
   isSettingsOpen: boolean;
+  isDesignGuidelinesOpen: boolean;
   isLoading: boolean;
   openSettings: () => void;
   closeSettings: () => void;
+  openDesignGuidelines: () => void;
+  closeDesignGuidelines: () => void;
   loadSettings: () => Promise<void>;
   updateSettings: (patch: Partial<AppSettings>) => Promise<void>;
 }
@@ -44,10 +47,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     ...loadStoredFromLocalStorage(),
   },
   isSettingsOpen: false,
+  isDesignGuidelinesOpen: false,
   isLoading: true,
 
   openSettings: () => set({ isSettingsOpen: true }),
   closeSettings: () => set({ isSettingsOpen: false }),
+  openDesignGuidelines: () => set({ isDesignGuidelinesOpen: true }),
+  closeDesignGuidelines: () => set({ isDesignGuidelinesOpen: false }),
 
   loadSettings: async () => {
     try {

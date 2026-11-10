@@ -4,10 +4,40 @@ export type SQLDialect = 'postgresql' | 'mysql' | 'mariadb' | 'sqlite' | 'sqlser
 
 export type NamingConvention = 'snake_case' | 'camelCase' | 'PascalCase';
 
+export type GuidelinesNameCase = 'snake_case' | 'camelCase' | 'PascalCase' | 'kebab-case';
+export type GuidelinesTableNaming = 'plural' | 'singular';
+
+export interface AIGuidelinesConventions {
+  dialect?: SQLDialect;
+  nameCase?: GuidelinesNameCase;
+  tableNaming?: GuidelinesTableNaming;
+  primaryKey?: {
+    name: string;
+    type: string;
+    autoIncrement?: boolean;
+  };
+  foreignKeyPattern?: string;
+  timestamps?: boolean;
+  softDelete?: boolean;
+  defaultOnDelete?: FKAction;
+  defaultOnUpdate?: FKAction;
+  requireComments?: boolean;
+  preferredTypes?: Record<string, string>;
+  junctionTableNaming?: string;
+  rules?: string[];
+}
+
+export interface AIGuidelines {
+  brief?: string;
+  conventions?: AIGuidelinesConventions;
+  updatedAt?: string;
+}
+
 export interface ProjectSettings {
   defaultDialect: SQLDialect;
   namingConvention: NamingConvention;
   autosaveIntervalMs: number;
+  aiGuidelines?: AIGuidelines;
 }
 
 export interface Viewport {

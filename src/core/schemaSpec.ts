@@ -14,6 +14,7 @@ import {
   SCHEMA_LIMITS,
 } from './types';
 import { coreAddRelationship } from './schemaOperations';
+import { reviewDesignConventions } from './conventions';
 
 function clone<T>(val: T): T {
   return JSON.parse(JSON.stringify(val));
@@ -38,7 +39,7 @@ function getValidTypeSet(dialect: SQLDialect): Set<string> {
 
 export function applySchemaSpec(
   content: DBSchemaContent,
-  spec: SchemaSpec,
+  inputSpec: SchemaSpec,
   options: ApplySchemaSpecOptions = {}
 ): ApplySchemaSpecResult {
   const mode = options.mode || 'merge';
@@ -47,6 +48,81 @@ export function applySchemaSpec(
 
   if (mode === 'replace' && !options.confirmReplace) {
     throw new Error('Replace mode requires explicit confirmReplace: true confirmation.');
+  }
+
+  const spec: SchemaSpec = clone(inputSpec);
+  const shouldApplyGuidelines = options.applyGuidelines !== false && !!options.guidelines?.conventions;
+  const guidelineDefaultsApplied: string[] = [];
+
+  if (shouldApplyGuidelines && options.guidelines?.conventions) {
+    const conv = options.guidelines.conventions;
+
+    for (const tbl of spec.tables) {
+      // 1. Timestamps default
+      if (conv.timestamps === true && tbl.timestamps === undefined) {
+        tbl.timestamps = true;
+        guidelineDefaultsApplied.push(`Applied timestamps to table "${tbl.name}".`);
+      }
+
+      // 2. Soft delete default
+      if (conv.softDelete === true && tbl.softDelete === undefined) {
+        tbl.softDelete = true;
+        guidelineDefaultsApplied.push(`Applied softDelete to table "${tbl.name}".`);
+      }
+
+      // 3. Primary key default if table has none
+      if (conv.primaryKey) {
+        const hasPkCol = tbl.columns.some((c) => c.primaryKey);
+        const hasCompositePk = tbl.primaryKey && tbl.primaryKey.length > 0;
+        if (!hasPkCol && !hasCompositePk) {
+          tbl.columns.unshift({
+            name: conv.primaryKey.name,
+            type: conv.primaryKey.type,
+            primaryKey: true,
+            autoIncrement: conv.primaryKey.autoIncrement,
+          });
+          guidelineDefaultsApplied.push(
+            `Added default primary key "${conv.primaryKey.name}" (${conv.primaryKey.type}) to table "${tbl.name}".`
+          );
+        }
+      }
+
+      // 4. Default FK actions for column references
+      for (const col of tbl.columns) {
+        if (col.references) {
+          if (conv.defaultOnDelete && !col.references.onDelete) {
+            col.references.onDelete = conv.defaultOnDelete;
+            guidelineDefaultsApplied.push(
+              `Applied default onDelete "${conv.defaultOnDelete}" to relationship "${tbl.name}.${col.name}".`
+            );
+          }
+          if (conv.defaultOnUpdate && !col.references.onUpdate) {
+            col.references.onUpdate = conv.defaultOnUpdate;
+            guidelineDefaultsApplied.push(
+              `Applied default onUpdate "${conv.defaultOnUpdate}" to relationship "${tbl.name}.${col.name}".`
+            );
+          }
+        }
+      }
+    }
+
+    // 5. Default FK actions for top-level relationships
+    if (spec.relationships) {
+      for (const rel of spec.relationships) {
+        if (conv.defaultOnDelete && !rel.onDelete) {
+          rel.onDelete = conv.defaultOnDelete;
+          guidelineDefaultsApplied.push(
+            `Applied default onDelete "${conv.defaultOnDelete}" to relationship "${rel.from.table}.${rel.from.column}".`
+          );
+        }
+        if (conv.defaultOnUpdate && !rel.onUpdate) {
+          rel.onUpdate = conv.defaultOnUpdate;
+          guidelineDefaultsApplied.push(
+            `Applied default onUpdate "${conv.defaultOnUpdate}" to relationship "${rel.from.table}.${rel.from.column}".`
+          );
+        }
+      }
+    }
   }
 
   // ============================================================================
@@ -521,14 +597,22 @@ export function applySchemaSpec(
   }
 
   // ============================================================================
-  // LINTING
+  // LINTING & CONVENTION REVIEW
   // ============================================================================
   const lint = validateSchema(newContent.tables, newContent.relationships, dialect);
+
+  if (shouldApplyGuidelines && options.guidelines) {
+    const conventionIssues = reviewDesignConventions(newContent, options.guidelines);
+    for (const issue of conventionIssues) {
+      warnings.push(`[Convention ${issue.severity.toUpperCase()}] ${issue.message} Fix: ${issue.fix}`);
+    }
+  }
 
   return {
     content: newContent,
     summary,
     warnings,
     lint,
+    ...(guidelineDefaultsApplied.length > 0 ? { guidelineDefaultsApplied } : {}),
   };
 }

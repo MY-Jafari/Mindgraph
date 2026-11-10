@@ -15,8 +15,10 @@ import {
   ShieldAlert,
   History,
   GitMerge,
+  BookOpen,
 } from 'lucide-react';
 import { Button } from '@/shared/components/ui/button';
+import { useSettingsStore } from '@/shared/stores/settingsStore';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,6 +45,7 @@ export function DBDesignerToolbar({
   onOpenDiff,
 }: DBDesignerToolbarProps) {
   const { t } = useTranslation();
+  const openDesignGuidelines = useSettingsStore((s) => s.openDesignGuidelines);
   const {
     tables,
     relationships,
@@ -272,6 +275,16 @@ export function DBDesignerToolbar({
         className="h-8 w-8 text-muted-foreground hover:text-foreground"
       >
         <History className="w-4 h-4" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="iconSm"
+        onClick={openDesignGuidelines}
+        title={t('guidelines.toolbarButton', 'Design Guidelines')}
+        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+      >
+        <BookOpen className="w-4 h-4" />
       </Button>
 
       <Button

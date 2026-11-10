@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings, Shield, Globe, Database, Type, Check, Info, RefreshCw, Folder } from 'lucide-react';
+import { Settings, Shield, Globe, Database, Type, Check, Info, RefreshCw, Folder, Sparkles } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -187,6 +187,23 @@ export function SettingsDialog() {
                 </select>
               </div>
             </div>
+
+            {activeProject && (
+              <div className="pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    closeSettings();
+                    useSettingsStore.getState().openDesignGuidelines();
+                  }}
+                  className="w-full text-xs h-8 gap-2 border-primary/30 text-primary hover:bg-primary/10"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{t('guidelines.openGuidelines', 'Edit AI Design Guidelines')}</span>
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Section 3: About Application & Desktop Controls */}
