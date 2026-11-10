@@ -50,6 +50,7 @@ export interface DesktopBridge {
   watchProjectFile: (filePath: string, cb: (data: FileChangedEvent) => void) => () => void;
   unwatchProjectFile: () => Promise<boolean>;
   getMcpServerPath: () => Promise<string>;
+  getMcpInfo?: () => Promise<{ bundlePath: string; execPath: string; isPackaged: boolean }>;
   testMcpConnection: (workspacePath?: string) => Promise<McpConnectionTestResult>;
   fileExists: (filePath: string) => Promise<boolean>;
   onBeforeClose: (cb: () => void) => () => void;

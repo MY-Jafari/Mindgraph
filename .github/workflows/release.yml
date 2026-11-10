@@ -63,6 +63,9 @@ jobs:
       - name: Build Desktop SPA bundle
         run: npm run build:desktop
 
+      - name: Build MCP server bundle
+        run: npm run mcp:build
+
       - name: Package Windows Installer
         shell: bash
         run: |
@@ -87,6 +90,7 @@ jobs:
             release/Mindgraph-Setup-*.exe
             release/latest.yml
             release/*.blockmap
+            mcp/dist/mindgraph-mcp.mjs
           retention-days: 7
 
       - name: Publish GitHub Release
@@ -103,3 +107,4 @@ jobs:
             release/Mindgraph-Setup-*.exe
             release/latest.yml
             release/*.blockmap
+            mcp/dist/mindgraph-mcp.mjs

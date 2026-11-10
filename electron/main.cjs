@@ -339,20 +339,40 @@ function registerIpcHandlers() {
   });
 
   // MCP Server Helpers
+  ipcMain.handle('mcp:get-info', (event) => {
+    validateIpcSender(event.senderFrame?.url, app.isPackaged);
+    const devPath = path.resolve(__dirname, '..', 'mcp', 'dist', 'mindgraph-mcp.mjs');
+    const prodPath = path.join(process.resourcesPath || '', 'mcp', 'mindgraph-mcp.mjs');
+    const bundlePath = app.isPackaged
+      ? (fs.existsSync(prodPath) ? prodPath : devPath)
+      : (fs.existsSync(devPath) ? devPath : prodPath);
+    return {
+      bundlePath,
+      execPath: app.isPackaged ? process.execPath : 'node',
+      isPackaged: app.isPackaged,
+    };
+  });
+
   ipcMain.handle('mcp:get-path', (event) => {
     validateIpcSender(event.senderFrame?.url, app.isPackaged);
     const devPath = path.resolve(__dirname, '..', 'mcp', 'dist', 'mindgraph-mcp.mjs');
     const prodPath = path.join(process.resourcesPath || '', 'mcp', 'mindgraph-mcp.mjs');
-    return fs.existsSync(devPath) ? devPath : prodPath;
+    return app.isPackaged
+      ? (fs.existsSync(prodPath) ? prodPath : devPath)
+      : (fs.existsSync(devPath) ? devPath : prodPath);
   });
 
   ipcMain.handle('mcp:test-connection', async (event, workspacePath) => {
     validateIpcSender(event.senderFrame?.url, app.isPackaged);
     const devPath = path.resolve(__dirname, '..', 'mcp', 'dist', 'mindgraph-mcp.mjs');
     const prodPath = path.join(process.resourcesPath || '', 'mcp', 'mindgraph-mcp.mjs');
-    const bundlePath = fs.existsSync(devPath) ? devPath : prodPath;
+    const bundlePath = app.isPackaged
+      ? (fs.existsSync(prodPath) ? prodPath : devPath)
+      : (fs.existsSync(devPath) ? devPath : prodPath);
     const ws = workspacePath || path.join(app.getPath('documents'), 'Mindgraph');
-    return testMcpServerConnection('node', bundlePath, ws);
+    const execPath = app.isPackaged ? process.execPath : 'node';
+    const env = app.isPackaged ? { ELECTRON_RUN_AS_NODE: '1' } : {};
+    return testMcpServerConnection(execPath, bundlePath, ws, 5000, env);
   });
 
   // File Exists

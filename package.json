@@ -16,7 +16,7 @@
     "desktop:pack": "npm run build:desktop && electron-builder --win --publish never",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "npm run mcp:build && vitest run",
     "mcp:build": "node mcp/build.mjs",
     "mcp:dev": "node mcp/dist/mindgraph-mcp.mjs",
     "mcp:inspect": "npx @modelcontextprotocol/inspector node mcp/dist/mindgraph-mcp.mjs"

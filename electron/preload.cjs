@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('mindgraphDesktop', {
   getMcpServerPath: () =>
     ipcRenderer.invoke('mcp:get-path'),
 
+  getMcpInfo: () =>
+    ipcRenderer.invoke('mcp:get-info'),
+
   testMcpConnection: (workspacePath) =>
     ipcRenderer.invoke('mcp:test-connection', workspacePath),
 

@@ -10,6 +10,9 @@ files:
   - package.json
   - "!**/*.map"
   - "!**/node_modules/**/{test,tests,docs,*.md}"
+extraResources:
+  - from: mcp/dist/mindgraph-mcp.mjs
+    to: mcp/mindgraph-mcp.mjs
 asar: true
 win:
   target:

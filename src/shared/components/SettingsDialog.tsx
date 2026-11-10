@@ -23,12 +23,22 @@ export function SettingsDialog() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [mcpServerPath, setMcpServerPath] = useState('');
+  const [mcpInfo, setMcpInfo] = useState<{ bundlePath: string; execPath: string; isPackaged: boolean } | null>(null);
+  const [snippetMode, setSnippetMode] = useState<'app' | 'node'>('app');
   const [isTestingMcp, setIsTestingMcp] = useState(false);
   const [mcpTestResult, setMcpTestResult] = useState<{ success: boolean; toolCount?: number; error?: string } | null>(null);
   const [copiedConfig, setCopiedConfig] = useState(false);
 
   useEffect(() => {
-    if (window.mindgraphDesktop?.getMcpServerPath) {
+    if (window.mindgraphDesktop?.getMcpInfo) {
+      window.mindgraphDesktop.getMcpInfo().then((info) => {
+        if (info) {
+          setMcpInfo(info);
+          if (info.bundlePath) setMcpServerPath(info.bundlePath);
+          setSnippetMode(info.isPackaged ? 'app' : 'node');
+        }
+      });
+    } else if (window.mindgraphDesktop?.getMcpServerPath) {
       window.mindgraphDesktop.getMcpServerPath().then((p) => {
         if (p) setMcpServerPath(p);
       });
@@ -91,17 +101,20 @@ export function SettingsDialog() {
 
   const defaultWorkspace = 'C:\\Users\\user\\Documents\\Mindgraph';
   const workspaceDir = settings.mcpWorkspaceFolder || defaultWorkspace;
-  const serverPath = mcpServerPath || 'C:\\path\\to\\mcp\\dist\\mindgraph-mcp.mjs';
+  const serverPath = mcpServerPath || mcpInfo?.bundlePath || 'C:\\path\\to\\mcp\\dist\\mindgraph-mcp.mjs';
+  const execCommand = mcpInfo?.execPath && snippetMode === 'app' ? mcpInfo.execPath : 'node';
+  const snippetEnv: Record<string, string> =
+    snippetMode === 'app' && mcpInfo?.isPackaged
+      ? { ELECTRON_RUN_AS_NODE: '1', MINDGRAPH_WORKSPACE: workspaceDir }
+      : { MINDGRAPH_WORKSPACE: workspaceDir };
 
   const mcpConfigSnippet = JSON.stringify(
     {
       mcpServers: {
         mindgraph: {
-          command: 'node',
+          command: execCommand,
           args: [serverPath],
-          env: {
-            MINDGRAPH_WORKSPACE: workspaceDir,
-          },
+          env: snippetEnv,
         },
       },
     },
@@ -295,6 +308,37 @@ export function SettingsDialog() {
                 </label>
                 <div className="px-2.5 py-1.5 rounded-md border border-border bg-background font-mono text-[11px] text-muted-foreground select-all truncate">
                   {mcpServerPath || 'mcp/dist/mindgraph-mcp.mjs'}
+                </div>
+              </div>
+
+              {/* Launch Mode Toggle */}
+              <div className="flex items-center justify-between text-xs pt-0.5">
+                <span className="font-semibold text-foreground text-xs">
+                  {t('settings.mcpModeLabel', 'Launch Mode')}
+                </span>
+                <div className="flex rounded-md bg-muted/50 p-0.5 border border-border text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setSnippetMode('app')}
+                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                      snippetMode === 'app'
+                        ? 'bg-primary text-primary-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {t('settings.mcpModeApp', 'Mindgraph.exe (Zero Setup)')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSnippetMode('node')}
+                    className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                      snippetMode === 'node'
+                        ? 'bg-primary text-primary-foreground shadow-xs'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {t('settings.mcpModeNode', 'Node.js (node >= 20)')}
+                  </button>
                 </div>
               </div>
 

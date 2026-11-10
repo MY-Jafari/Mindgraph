@@ -33,6 +33,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Build MCP server bundle
+        run: npm run mcp:build
+
       - name: Run unit tests
         run: npm test
 

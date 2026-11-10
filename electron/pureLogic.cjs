@@ -318,7 +318,7 @@ class ProjectFileWatcher {
 /**
  * Tests connection to Mindgraph MCP server via stdio transport.
  */
-async function testMcpServerConnection(nodePath, bundlePath, workspacePath, timeoutMs = 5000) {
+async function testMcpServerConnection(nodePath, bundlePath, workspacePath, timeoutMs = 5000, extraEnv = {}) {
   return new Promise((resolve) => {
     let resolved = false;
     let child = null;
@@ -344,7 +344,7 @@ async function testMcpServerConnection(nodePath, bundlePath, workspacePath, time
     try {
       const exec = nodePath || 'node';
       child = cp.spawn(exec, [bundlePath], {
-        env: { ...process.env, MINDGRAPH_WORKSPACE: workspacePath },
+        env: { ...process.env, MINDGRAPH_WORKSPACE: workspacePath, ...extraEnv },
         stdio: ['pipe', 'pipe', 'pipe'],
       });
 

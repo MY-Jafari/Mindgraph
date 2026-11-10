@@ -97,4 +97,38 @@ describe('Phase 4: Installer Packaging (electron-builder & NSIS)', () => {
     expect(pkg.devDependencies).toHaveProperty('dexie');
     expect(pkg.devDependencies).toHaveProperty('zustand');
   });
+
+  describe('Phase F: Packaging and Release Verification', () => {
+    it('packages MCP bundle as unpacked extraResources in electron-builder.yml', () => {
+      const content = fs.readFileSync(configPath, 'utf8');
+      expect(content).toContain('extraResources:');
+      expect(content).toContain('from: mcp/dist/mindgraph-mcp.mjs');
+      expect(content).toContain('to: mcp/mindgraph-mcp.mjs');
+    });
+
+    it('ensures MCP bundle size is reasonable (< 5MB)', () => {
+      const bundlePath = path.resolve(process.cwd(), 'mcp/dist/mindgraph-mcp.mjs');
+      expect(fs.existsSync(bundlePath)).toBe(true);
+      const stats = fs.statSync(bundlePath);
+      // Bundle should be around 2MB, well below 5MB
+      expect(stats.size).toBeGreaterThan(100_000);
+      expect(stats.size).toBeLessThan(5_000_000);
+    });
+
+    it('attaches MCP bundle to GitHub Release in release.yml with fail_on_unmatched_files', () => {
+      const releaseYmlPath = path.resolve(process.cwd(), '.github/workflows/release.yml');
+      expect(fs.existsSync(releaseYmlPath)).toBe(true);
+      const content = fs.readFileSync(releaseYmlPath, 'utf8');
+      expect(content).toContain('mcp/dist/mindgraph-mcp.mjs');
+      expect(content).toContain('fail_on_unmatched_files: true');
+    });
+
+    it('includes MCP server build and multi-OS matrix in ci.yml', () => {
+      const ciYmlPath = path.resolve(process.cwd(), '.github/workflows/ci.yml');
+      expect(fs.existsSync(ciYmlPath)).toBe(true);
+      const content = fs.readFileSync(ciYmlPath, 'utf8');
+      expect(content).toContain('npm run mcp:build');
+      expect(content).toContain('os: [ubuntu-latest, windows-latest]');
+    });
+  });
 });
