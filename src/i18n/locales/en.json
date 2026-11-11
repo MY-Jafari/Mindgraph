@@ -313,6 +313,7 @@
     "clientVersion": "Version",
     "consentPromptText": "Do you want to allow this agent to read and design tables directly on your active canvas for this session?",
     "deny": "Deny",
-    "allowSession": "Allow for this Session"
+    "allowSession": "Allow for this Session",
+    "startFailed": "Failed to start AI Live Bridge: {{error}}"
   }
 }

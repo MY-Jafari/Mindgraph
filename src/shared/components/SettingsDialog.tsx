@@ -15,6 +15,7 @@ import { useProjectStore } from '@/features/projects/projectStore';
 import type { SQLDialect, NamingConvention } from '@/features/projects/types';
 import { isDesktopApp } from '@/platform/fileService';
 import type { UpdateStatus } from '@/platform/desktop';
+import { notify } from '@/shared/stores/toastStore';
 
 export function SettingsDialog() {
   const { t } = useTranslation();
@@ -307,14 +308,32 @@ export function SettingsDialog() {
                       type="checkbox"
                       id="toggle-live-bridge"
                       checked={Boolean(settings.bridgeEnabled)}
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const enabled = e.target.checked;
-                        updateSettings({ bridgeEnabled: enabled });
+                        await updateSettings({ bridgeEnabled: enabled });
                         if (window.mindgraphDesktop?.setBridgeConfig) {
-                          window.mindgraphDesktop.setBridgeConfig({
-                            enabled,
-                            accessLevel: settings.bridgeAccessLevel,
-                          });
+                          try {
+                            const res = await window.mindgraphDesktop.setBridgeConfig({
+                              enabled,
+                              accessLevel: settings.bridgeAccessLevel,
+                            });
+                            if (enabled && (!res?.enabled || res?.error)) {
+                              notify({
+                                kind: 'error',
+                                messageKey: 'bridge.startFailed',
+                                params: { error: res?.error || 'Unknown error' },
+                              });
+                              await updateSettings({ bridgeEnabled: false });
+                            }
+                          } catch (err) {
+                            const errMsg = err instanceof Error ? err.message : String(err);
+                            notify({
+                              kind: 'error',
+                              messageKey: 'bridge.startFailed',
+                              params: { error: errMsg },
+                            });
+                            await updateSettings({ bridgeEnabled: false });
+                          }
                         }
                       }}
                       className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary cursor-pointer"

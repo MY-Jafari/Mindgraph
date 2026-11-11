@@ -10,6 +10,7 @@ import { BridgeConsentDialog } from '@/features/bridge/components/BridgeConsentD
 import { BridgeActivityDialog } from '@/features/bridge/components/BridgeActivityDialog';
 import { useBridgeStore } from '@/features/bridge/bridgeStore';
 import { initBridgeRenderer } from '@/features/bridge/bridgeRendererService';
+import { useBridgeAutoStart } from '@/features/bridge/useBridgeAutoStart';
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary';
 import { useSettingsStore } from '@/shared/stores/settingsStore';
 import { isDesktopApp } from '@/platform/fileService';
@@ -31,6 +32,9 @@ export function App() {
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  // Desktop live bridge auto-start when enabled in settings
+  useBridgeAutoStart();
 
   // Attach lifecycle listeners (visibilitychange, pagehide) for autosave flush
   useEffect(() => {

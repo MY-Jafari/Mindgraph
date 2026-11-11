@@ -135,4 +135,5 @@ Thumbs.db
 *.prompt.md
 !docs/PROMPT.md
 scratch/
+.dsh-acl-recovery/
 

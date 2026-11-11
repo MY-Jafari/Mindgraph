@@ -55,6 +55,7 @@ export interface BridgeStatus {
   accessLevel: 'read-only' | 'read-and-edit';
   connectedClients: number;
   activityLog?: BridgeActivityEntry[];
+  error?: string;
 }
 
 export interface DesktopBridge {

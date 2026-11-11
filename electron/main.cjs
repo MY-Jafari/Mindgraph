@@ -429,6 +429,8 @@ function registerIpcHandlers() {
       bridgeAccessLevel = opts.accessLevel === 'read-only' ? 'read-only' : 'read-and-edit';
     }
 
+    let startError = null;
+
     if (shouldEnable && !bridgeEnabled) {
       bridgeEnabled = true;
       if (!bridgeHost) {
@@ -444,8 +446,8 @@ function registerIpcHandlers() {
               ipcMain.once(`bridge:consent-response:${consentKey}`, (_e, allowed) => {
                 resolve(!!allowed);
               });
-              // Fallback default allow after 15s if user ignores
-              setTimeout(() => resolve(true), 15000);
+              // Fallback default deny after 15s if user ignores
+              setTimeout(() => resolve(false), 15000);
             });
           },
           onRequest: async (method, params, clientInfo) => {
@@ -496,6 +498,7 @@ function registerIpcHandlers() {
       } catch (err) {
         console.error('Failed to start bridge host:', err);
         bridgeEnabled = false;
+        startError = err instanceof Error ? err.message : String(err);
       }
     } else if (!shouldEnable && bridgeEnabled) {
       bridgeEnabled = false;
@@ -511,6 +514,7 @@ function registerIpcHandlers() {
       enabled: bridgeEnabled,
       accessLevel: bridgeAccessLevel,
       connectedClients: bridgeHost ? bridgeHost.getConnectedClientsCount() : 0,
+      error: startError || undefined,
     };
   });
 
